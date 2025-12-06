@@ -302,10 +302,10 @@ int Rect_Rect_Compare(const void* e1,const void* e2) {
 }
 
 void Setup(AlxWindow* w){
-	tv = TransformedView_New((Vec2){ GetHeight(),GetHeight() });
+	tv = TransformedView_New((Vec2){ GetWidth(),GetHeight() });
 	TransformedView_Zoom(&tv,(Vec2){ 0.1f,0.1f });
 	//TransformedView_Offset(&tv,(Vec2){ -0.5f,0.0f });
-	TransformedView_Focus(&tv,&mario.r.p);
+	TransformedView_Focus(&tv,&mario.r.p,mario.r.d);
 
 	world = World_Make("./data/World/Level1.txt",World_Std_Mapper,(Sprite[]){
 		Sprite_Load("./data/Blocks/Void.png"),
