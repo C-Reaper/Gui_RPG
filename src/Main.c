@@ -318,7 +318,7 @@ void Setup(AlxWindow* w){
 		Sprite_Load("./data/Blocks/Podest.png"),
 		Sprite_Load("./data/Blocks/Pilz.png"),
 		Sprite_Load("./data/Blocks/Open_Block.png"),
-		Sprite_None()
+		Sprite_Null()
 	});
 
 	// mario = Figure_Make((Vec2){ 1.0f,25.0f },(Vec2){ 0.5f,1.8f },(Sprite[]){
@@ -336,7 +336,7 @@ void Setup(AlxWindow* w){
 	// 	Sprite_Load("./data/Sandra/Sandra0_l.png"),
 	// 	Sprite_Load("./data/Sandra/Sandra0_r.png"),
 	// 	Sprite_Load("./data/Sandra/Sandra0_l.png"),
-	// 	Sprite_None()
+	// 	Sprite_Null()
 	// });
 
 	mario = Figure_Make((Vec2){ 1.0f,25.0f },(Vec2){ 0.9f,0.9f },(Sprite[]){
@@ -354,7 +354,7 @@ void Setup(AlxWindow* w){
 		Sprite_Load("./data/Mario/Mario5_l.png"),
 		Sprite_Load("./data/Mario/Mario6_r.png"),
 		Sprite_Load("./data/Mario/Mario6_l.png"),
-		Sprite_None()
+		Sprite_Null()
 	});
 
 	start = 0UL;
