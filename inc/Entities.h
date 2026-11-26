@@ -7,16 +7,10 @@
 #define ENTITY_FALSE		            0
 #define ENTITY_TRUE			            1
 
-#define PLAYER_DIM_X	               	0.7f
-#define PLAYER_DIM_Y					1.5f
-#define PLAYER_ACC		            	30.0f
-#define PLAYER_ACC_MAX		            50.0f
-#define PLAYER_VEL_CLP		            0.01f
-#define PLAYER_VEL_MAX	            	5.0f
-
 typedef enum Entity_ID {
 	ENTITY_ID_NONE = 0U,
-	ENTITY_ID_BLACKHAIR = 1U
+	ENTITY_ID_BLACKHAIR = 1U,
+	ENTITY_ID_TREE = 2U
 } Entity_ID;
 
 typedef enum Entity_LD {
@@ -26,6 +20,13 @@ typedef enum Entity_LD {
 	ENTITY_LD_RIGHT = 3U,
 	ENTITY_LD_UP = 4U
 } Entity_LD;
+
+#define PLAYER_DIM_X	               	0.5f
+#define PLAYER_DIM_Y					1.2f
+#define PLAYER_ACC		            	30.0f
+#define PLAYER_ACC_MAX		            50.0f
+#define PLAYER_VEL_CLP		            0.01f
+#define PLAYER_VEL_MAX	            	5.0f
 
 typedef struct Player {
 	World_Entity e;
@@ -97,12 +98,8 @@ char Player_IsSolid(Player* m,World* w,int32_t x,int32_t y,Side s){
 	}
 }
 void Player_Collision(Player* m,World* w,int32_t x,int32_t y,Side s){
-	Block b = World_Get(w,x,y);
-	
-	if(s==SIDE_BOTTOM || s==SIDE_TOP){
-		
-	}
-	
+	const Block b = World_Get(w,x,y);
+
 	if(s==SIDE_TOP && m->e.v.y>0.0f) 			m->e.v.y = 0.0f;
 	else if(s==SIDE_BOTTOM && m->e.v.y<0.0f) 	m->e.v.y = 0.0f;
 	else if(s==SIDE_LEFT && m->e.v.x>0.0f) 		m->e.v.x = 0.0f;
@@ -110,13 +107,20 @@ void Player_Collision(Player* m,World* w,int32_t x,int32_t y,Side s){
 }
 void Player_EntityCollision(Player* m,World* w,World_Entity* other,int32_t x,int32_t y,Side s){
 	switch (other->id){
-		//case :		{
-		//	break;
-		//}
+		case ENTITY_ID_BLACKHAIR:{
+			Resolve_Rect_Rect_Side(&m->e.r,other->r,s);
+			break;
+		}
+		case ENTITY_ID_TREE:{
+			Resolve_Rect_Rect_Side(&m->e.r,other->r,s);
+			break;
+		}
 	}
 }
 Player* Player_Load(DataStream* ds){
+	if(!ds || ds->size < (int32_t)sizeof(Player)) return NULL;
 	Player* p = (Player*)malloc(sizeof(Player));
+	if(!p) return NULL;
 	DataStream_ReadCount(ds,p,0,sizeof(*p));
 	return p;
 }
@@ -145,7 +149,7 @@ void Player_Free(Player* m){
 Player Player_By(Vec2 p,Entity_ID id){
 	Player b;
 	b.e.id = id;
-	b.e.r = (Rect){ p,{ PLAYER_DIM_X,PLAYER_DIM_Y } };
+	b.e.r = (Rect){ { p.x - 0.5f * PLAYER_DIM_X,p.y - 0.5f * PLAYER_DIM_Y },{ PLAYER_DIM_X,PLAYER_DIM_Y } };
 	b.e.v = (Vec2){ 0.0f,0.0f };
 	b.e.a = (Vec2){ 0.0f,0.0f };
 	b.spawn = p;
@@ -158,6 +162,53 @@ Player* Player_New(Vec2 p,Entity_ID id){
 	Player* hb = malloc(sizeof(Player));
 	memcpy(hb,&b,sizeof(Player));
 	return hb;
+}
+
+
+
+
+
+#define TREE_DIM_X	               	2.0f
+#define TREE_DIM_Y					1.5f
+
+typedef World_Entity Tree;
+
+Tree* Tree_Load(DataStream* ds){
+	if(!ds || ds->size < (int32_t)sizeof(Tree)) return NULL;
+	Tree* p = (Tree*)malloc(sizeof(Tree));
+	if(!p) return NULL;
+	DataStream_ReadCount(ds,p,0,sizeof(*p));
+	return p;
+}
+void Tree_Save(Tree* m,DataStream* ds){
+	DataStream_PushCount(ds,m,sizeof(*m));
+}
+SubSprite Tree_GetRender(Tree* m,EntityAtlas* ea){
+	unsigned int dx = ea->atlas.w / ea->cx;
+	unsigned int dy = ea->atlas.h / ea->cy;
+	return SubSprite_New(&ea->atlas,0.0f,0.0f,dx,dy);
+}
+Tree Tree_By(Vec2 p,Entity_ID id){
+	Tree b;
+	b.id = id;
+	b.r = (Rect){ { p.x - 0.5f * TREE_DIM_X,p.y - 0.5f * TREE_DIM_Y },{ TREE_DIM_X,TREE_DIM_Y } };
+	b.v = (Vec2){ 0.0f,0.0f };
+	b.a = (Vec2){ 0.0f,0.0f };
+	return b;
+}
+Tree* Tree_New(Vec2 p,Entity_ID id){
+	Tree b = Tree_By(p,id);
+	Tree* hb = malloc(sizeof(Tree));
+	memcpy(hb,&b,sizeof(Tree));
+	return hb;
+}
+
+void* World_Entity_New(Vec2 p,Entity_ID id){
+	switch (id){
+		case ENTITY_ID_BLACKHAIR:	return Player_New(p,id);
+		case ENTITY_ID_TREE:		return Tree_New(p,id);
+	}
+	return NULL;
 }
 
 #endif

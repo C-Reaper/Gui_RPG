@@ -201,7 +201,6 @@ static const uint8_t TileWorld_House_TileLookup[16] = {
 uint32_t TileWorld_Parity(int32_t x,int32_t y){
 	return (((uint32_t)x + (uint32_t)y) & 1U);
 }
-
 SubSprite TileWorld_House_Get(Animation* a,World* w,int32_t x,int32_t y,Block family){
 	const uint8_t neighbours = TileWorld_House_Neighbours_Get(w,family,x,y);
 	unsigned int tile = TileWorld_House_TileLookup[neighbours];
@@ -215,7 +214,6 @@ SubSprite TileWorld_House_Gray_Get(Animation* a,World* w,int32_t x,int32_t y){
 SubSprite TileWorld_House_Red_Get(Animation* a,World* w,int32_t x,int32_t y){
 	return TileWorld_House_Get(a,w,x,y,BLOCK_HOUSE_RED);
 }
-
 SubSprite TileWorld_Door_Get(Animation* a,World* w,int32_t x,int32_t y){
 	(void)a;
 	const Block family = TileWorld_House_Family_Get(w,x,y);
@@ -228,7 +226,6 @@ SubSprite TileWorld_Door_Get(Animation* a,World* w,int32_t x,int32_t y){
 	const unsigned int tile_y = door_below && !door_above ? 1U : 2U;
 	return TileWorld_Atlas_Cell_Get(house,2U,tile_y);
 }
-
 uint8_t TileWorld_Ceil_Neighbours_Get(World* w,Block ceiling,int32_t x,int32_t y){
 	const uint8_t north = (uint8_t)(World_Get(w,x,y - 1) == ceiling);
 	const uint8_t east = (uint8_t)(World_Get(w,x + 1,y) == ceiling);
@@ -236,7 +233,6 @@ uint8_t TileWorld_Ceil_Neighbours_Get(World* w,Block ceiling,int32_t x,int32_t y
 	const uint8_t west = (uint8_t)(World_Get(w,x - 1,y) == ceiling);
 	return (uint8_t)(north | (east << 1U) | (south << 2U) | (west << 3U));
 }
-
 SubSprite TileWorld_Ceil_Flat_Get(Animation* a,World* w,int32_t x,int32_t y){
 	const uint8_t neighbours = TileWorld_Ceil_Neighbours_Get(w,BLOCK_CEIL_FLAT,x,y);
 	const uint8_t east = neighbours & 0x02U;
@@ -244,7 +240,6 @@ SubSprite TileWorld_Ceil_Flat_Get(Animation* a,World* w,int32_t x,int32_t y){
 	const unsigned int tile_x = !west ? 0U : (!east ? 2U : 1U);
 	return TileWorld_Atlas_Cell_Get(a,tile_x,0U);
 }
-
 SubSprite TileWorld_Ceil_Normal_Get(Animation* a,World* w,int32_t x,int32_t y){
 	const uint8_t neighbours = TileWorld_Ceil_Neighbours_Get(w,BLOCK_CEIL_NORMAL,x,y);
 	const uint8_t north = neighbours & 0x01U;
@@ -312,6 +307,22 @@ TileWorld TileWorld_New(char* path_world,char* path_blocks,char* path_figures,ch
 				(void*(*)(DataStream*))Player_Load,
 				(void(*)(void*,DataStream*))Player_Save
 			),
+		    EntityAtlas_Make(
+				path_objects,
+				"Tree.png",
+				1,1,
+				3.5f,4.0f,
+				NULL,
+				NULL,
+				(SubSprite(*)(void*,EntityAtlas*))Tree_GetRender,
+				NULL,
+				NULL,
+				NULL,
+				NULL,
+				NULL,
+				(void*(*)(DataStream*))Tree_Load,
+				(void(*)(void*,DataStream*))Tree_Save
+			),
 		    EntityAtlas_Null()
 	    }
     );
@@ -322,6 +333,49 @@ TileWorld TileWorld_New(char* path_world,char* path_blocks,char* path_figures,ch
 }
 void TileWorld_AudioPlayerStart(TileWorld* tw){
     AudioPlayer_Start(&tw->ap);
+}
+void TileWorld_RenderEntityPreview(Pixel* out,unsigned int width,unsigned int height,SubSprite ss,float x,float y,float box_width,float box_height){
+	if(!out || !ss.sp || !ss.sp->img || ss.dx <= 0.0f || ss.dy <= 0.0f || box_width <= 0.0f || box_height <= 0.0f)
+		return;
+
+	Rect source;
+	if(!Rect_Clip(&source,ss.ox,ss.oy,ss.dx,ss.dy,0.0f,0.0f,(float)ss.sp->w,(float)ss.sp->h))
+		return;
+
+	const int32_t source_x = (int32_t)floorf(source.p.x);
+	const int32_t source_y = (int32_t)floorf(source.p.y);
+	const int32_t source_width = (int32_t)ceilf(source.p.x + source.d.x) - source_x;
+	const int32_t source_height = (int32_t)ceilf(source.p.y + source.d.y) - source_y;
+	const int32_t target_width = (int32_t)floorf(box_width);
+	const int32_t target_height = (int32_t)floorf(box_height);
+	if(source_width <= 0 || source_height <= 0 || target_width <= 0 || target_height <= 0)
+		return;
+
+	const float scale = fminf((float)target_width / source_width,(float)target_height / source_height);
+	const int32_t draw_width = (int32_t)floorf(source_width * scale);
+	const int32_t draw_height = (int32_t)floorf(source_height * scale);
+	if(draw_width <= 0 || draw_height <= 0)
+		return;
+
+	const int32_t draw_x = (int32_t)floorf(x + (target_width - draw_width) * 0.5f);
+	const int32_t draw_y = (int32_t)floorf(y + (target_height - draw_height) * 0.5f);
+	for(int32_t dy = 0;dy<draw_height;dy++){
+		const int32_t target_y = draw_y + dy;
+		if(target_y < 0 || target_y >= (int32_t)height) continue;
+		const int32_t sample_y = source_y + (int32_t)(((float)dy + 0.5f) * source_height / draw_height);
+
+		for(int32_t dx = 0;dx<draw_width;dx++){
+			const int32_t target_x = draw_x + dx;
+			if(target_x < 0 || target_x >= (int32_t)width) continue;
+			const int32_t sample_x = source_x + (int32_t)(((float)dx + 0.5f) * source_width / draw_width);
+			const Pixel pixel = ss.sp->img[sample_y * (int32_t)ss.sp->w + sample_x];
+			const int alpha = Pixel_A(pixel);
+			if(alpha == 0) continue;
+
+			Pixel* target = out + target_y * width + target_x;
+			*target = alpha == 255 ? pixel : Pixel_Alpha(pixel,*target);
+		}
+	}
 }
 void TileWorld_RenderDbg(TileWorld* tw,Pixel* out,unsigned int width,unsigned int height,unsigned int mx,unsigned int my){
 	if(tw->world.mode == ANIMATIONBG_DG){
@@ -336,11 +390,30 @@ void TileWorld_RenderDbg(TileWorld* tw,Pixel* out,unsigned int width,unsigned in
 		Rect_RenderXX(out,width,height,(preshow >> 1) * (sd.x * 1.1f),0.0f,sd.x + 10.0f,sd.y + 10.0f,RED);
 
 		for(int i = 0;i<preshow;i++){
-			const uint32_t b = tw->selected + i - (preshow >> 1);
+			const int64_t selection = (int64_t)tw->selected + i - (preshow >> 1);
+			if(selection < 0 || selection > UINT32_MAX) continue;
+			const uint32_t b = (uint32_t)selection;
 
-			if(World_isBlock(&tw->world,b)){
-				SubSprite ss = World_Img(&tw->world,b,0.0f,0.0f);
-				if(ss.sp) Sprite_RenderSubAlpha(out,width,height,ss.sp,x + i * (ss.dx * 1.1f),5.0f,ss.ox,ss.oy,ss.dx,ss.dy);
+			if(!tw->world.settype){
+				if(World_isBlock(&tw->world,b)){
+					SubSprite ss = World_Img(&tw->world,b,0.0f,0.0f);
+					if(ss.sp) Sprite_RenderSubAlpha(out,width,height,ss.sp,x + i * (ss.dx * 1.1f),5.0f,ss.ox,ss.oy,ss.dx,ss.dy);
+				}
+			}else{
+				if(b == ENTITY_ID_NONE || b > tw->world.entityatlas.size) continue;
+
+				World_Entity* preview = (World_Entity*)World_Entity_New((Vec2){ 0.0f,0.0f },(Entity_ID)b);
+				if(!preview) continue;
+
+				EntityAtlas* ea = World_EntityAtlas_Get(&tw->world,preview);
+				if(ea && ea->GetRender){
+					SubSprite ss = ea->GetRender(preview,ea);
+
+					if(ss.sp && ss.dx > 0.0f && ss.dy > 0.0f)
+						TileWorld_RenderEntityPreview(out,width,height,ss,x + i * (sd.x * 1.1f),5.0f,sd.x,sd.y);
+				}
+				if(ea && ea->Free) ea->Free(preview);
+				free(preview);
 			}
 		}
 	}

@@ -666,13 +666,33 @@ World_Chunk World_Chunk_Load(World* w,char* path,int32_t x,int32_t y){
 			Vector_Push(&ch.tags,&ct);
 		}
 
-		DataStream_ReadCount(&ds,&size,0,sizeof(size));
-		for(int i = 0;i<size;i++){
-			World_Entity* e = (World_Entity*)ds.Memory;
-			EntityAtlas* ea = World_EntityAtlas_Get(w,e);
+		int32_t entity_count = 0;
+		if(ds.size >= (int32_t)sizeof(entity_count)){
+			DataStream_ReadCount(&ds,&entity_count,0,sizeof(entity_count));
+			if(entity_count < 0 || entity_count > ds.size / (int32_t)sizeof(World_Entity)){
+				printf("[World_Chunk]: Load -> invalid entity count in '%s'\n",fp);
+				entity_count = 0;
+			}
 
-			if(ea->Load){
+			for(int32_t i = 0;i<entity_count;i++){
+				if(ds.size < (int32_t)sizeof(World_Entity)){
+					printf("[World_Chunk]: Load -> truncated entity data in '%s'\n",fp);
+					break;
+				}
+
+				World_Entity header;
+				memcpy(&header,ds.Memory,sizeof(header));
+				EntityAtlas* ea = World_EntityAtlas_Get(w,&header);
+				if(!ea || !ea->Load){
+					printf("[World_Chunk]: Load -> no loader for entity id %u in '%s'\n",header.id,fp);
+					break;
+				}
+
 				void* e_data = ea->Load(&ds);
+				if(!e_data){
+					printf("[World_Chunk]: Load -> failed to load entity id %u in '%s'\n",header.id,fp);
+					break;
+				}
 				PVector_PPush(&ch.entities,e_data);
 			}
 		}
@@ -698,12 +718,22 @@ void World_Chunk_Save(World_Chunk* ch,World* w,char* path){
 		World_Chunk_Tag_Save(ct,&ds);
 	}
 
-	DataStream_PushCount(&ds,&ch->entities.size,sizeof(ch->entities.size));
+	int32_t entity_count = 0;
+	for(int i = 0;i<ch->entities.size;i++){
+		World_Entity* e = (World_Entity*)PVector_Get(&ch->entities,i);
+		EntityAtlas* ea = World_EntityAtlas_Get(w,e);
+		if(ea && ea->Load && ea->Save)
+			entity_count++;
+		else if(e)
+			printf("[World_Chunk]: Save -> entity id %u has no load/save callbacks\n",e->id);
+	}
+
+	DataStream_PushCount(&ds,&entity_count,sizeof(entity_count));
 	for(int i = 0;i<ch->entities.size;i++){
 		World_Entity* e = (World_Entity*)PVector_Get(&ch->entities,i);
 		EntityAtlas* ea = World_EntityAtlas_Get(w,e);
 		
-		if(ea->Save)
+		if(ea && ea->Load && ea->Save)
 			ea->Save(e,&ds);
 	}
 
@@ -846,16 +876,21 @@ typedef struct World{
 	int32_t t_origin_y;
 	Vec2 spawn;
 	AnimationBg mode;
+	AnimationBg settype;
+	AnimationBg fill;
 	char* path;
 	void* (*Spawner)(Vec2,SpawnType,unsigned int*);
 } World;
 
 void World_ReloadChunks(World* w);
-World World_New(char* path){
+World World_Init(char* path){
 	World w;
 	w.animations = Vector_New(sizeof(Animation));
 	w.entityatlas = Vector_New(sizeof(EntityAtlas));
 	w.mode = ANIMATIONBG_ALL;
+	w.settype = 0U;
+	w.fill = 0U;
+
 	w.path = CStr_Cpy(path);
 	w.sprite_out = Vector_New(sizeof(World_Sprite));
 	w.dims = Vector_New(sizeof(World_Dimension));
@@ -868,6 +903,10 @@ World World_New(char* path){
 	w.spawn = (Vec2){ 0.0f,0.0f };
 
 	Vector_Push(&w.dims,(World_Dimension[]){ World_Dimension_New() });
+	return w;
+}
+World World_New(char* path){
+	World w = World_Init(path);
 	World_ReloadChunks(&w);
 	return w;
 }
@@ -895,7 +934,7 @@ uint32_t World_Block_RenderDepth(Block b){
 	}
 }
 World World_Make(char* Path,Animation* a,EntityAtlas* ea){
-	World w = World_New(Path);
+	World w = World_Init(Path);
 
 	for(int i = 0;a[i].type != ANIMATIONTYPE_NONE;i++){
 		Vector_Push(&w.animations,a + i);
@@ -904,6 +943,7 @@ World World_Make(char* Path,Animation* a,EntityAtlas* ea){
 		Vector_Push(&w.entityatlas,ea + i);
 	}
 
+	World_ReloadChunks(&w);
 	return w;
 }
 char World_isBlock(World* w,uint32_t b){
@@ -1063,9 +1103,9 @@ void World_Set(World* w,int32_t x,int32_t y,Block b){
 	World_Block_Place(w,ch,ch_x,ch_y,b);
 }
 
-void* World_Spawn(World* w,void* data,uint32_t size){
+void* World_Spawn(World* w,void* data){
 	World_Dimension* dim = (World_Dimension*)Vector_Get(&w->dims,w->dim_in);
-	if(!dim || !data || size < sizeof(World_Entity)) return NULL;
+	if(!dim || !data) return NULL;
 
 	const World_Entity* e_data = (World_Entity*)data;
 	if(!World_EntityAtlas_Get(w,e_data)) return NULL;
@@ -1081,7 +1121,7 @@ void* World_Spawn(World* w,void* data,uint32_t size){
 	World_Chunk* ch = (World_Chunk*)Vector_Get(row,column_index);
 	if(!ch) return NULL;
 	
-	PVector_Push(&ch->entities,data,size);
+	PVector_PPush(&ch->entities,data);
 	return PVector_Get(&ch->entities,ch->entities.size - 1);
 }
 void World_Remove(World* w,World_Entity* e){
@@ -1104,6 +1144,30 @@ void World_Remove(World* w,World_Entity* e){
 					PVector_Remove(&ch->entities,k);
 					return;
 				}
+			}
+		}
+	}
+}
+void World_RemoveAt(World* w,float x,float y){
+	World_Dimension* dim = (World_Dimension*)Vector_Get(&w->dims,w->dim_in);
+	if(!dim) return;
+
+	for(int row_index = 0;row_index < dim->chunks.size;row_index++){
+		World_Chunk_Row* row = (World_Chunk_Row*)Vector_Get(&dim->chunks,row_index);
+		if(!row) continue;
+
+		for(int column_index = 0;column_index < row->size;column_index++){
+			World_Chunk* ch = (World_Chunk*)Vector_Get(row,column_index);
+			if(!ch) continue;
+
+			for(int k = 0;k<ch->entities.size;k++){
+				World_Entity* e = (World_Entity*)PVector_Get(&ch->entities,k);
+				if(!e || !Rect_Point_Overlap(e->r,(Vec2){ x,y })) continue;
+
+				EntityAtlas* ea = World_EntityAtlas_Get(w,e);
+				if(ea && ea->Free) ea->Free(e);
+				PVector_Remove(&ch->entities,k);
+				return;
 			}
 		}
 	}
@@ -1333,11 +1397,8 @@ void World_Collision(World* w,World_Entity* src){
     		    TargetRect* r = (TargetRect*)Vector_Get(&rects,i);
 
 				Side s = Side_Rect_Rect(src->r,r->r);
+				const char collision = ea->IsSolid ? ea->IsSolid(src,w,r->r.p.x,r->r.p.y,s) : 0;
 				
-				char collision = 1;
-				if(ea->IsSolid)
-					collision = ea->IsSolid(src,w,r->r.p.x,r->r.p.y,s);
-
 				if(collision){
 					Resolve_Rect_Rect_Side(&src->r,r->r,s);
 					if(ea->Collision)
@@ -1359,7 +1420,7 @@ void World_EntityCollision(World* w,World_Entity* src,int32_t ri,int32_t ci){
 
 		const int32_t radius_y = (int32_t)ENTITY_COLLISION_RADIUS_Y;
 		const int32_t radius_x = (int32_t)ENTITY_COLLISION_RADIUS_X;
-		
+
 		for(int32_t i = -radius_y;i<=radius_y;i++) {
     	    const int32_t rindex = ri + i;
 			if(rindex < 0 || rindex >= dim->chunks.size) continue;
@@ -1465,13 +1526,15 @@ void World_RenderEntities(World* w,TransformedView* tv,Pixel* out,unsigned int w
 
 	const Vec2 tl = TransformedView_ScreenWorldPos(tv,(Vec2){ 0.0f,0.0f });
 	const Vec2 br = TransformedView_ScreenWorldPos(tv,(Vec2){ width,height });
-	
+
 	const Vic2 ch_tl = World_GetChunkCoord(w,(int32_t)floorf(tl.x),(int32_t)floorf(tl.y));
 	const Vic2 ch_br = World_GetChunkCoord(w,(int32_t)floorf(br.x),(int32_t)floorf(br.y));
+
 	int32_t row_start = ch_tl.y - (w->origin_y - WORLD_CHUNK_RADIUS_Y);
 	int32_t row_end = ch_br.y - (w->origin_y - WORLD_CHUNK_RADIUS_Y);
 	int32_t column_start = ch_tl.x - (w->origin_x - WORLD_CHUNK_RADIUS_X);
 	int32_t column_end = ch_br.x - (w->origin_x - WORLD_CHUNK_RADIUS_X);
+
 	if(row_start < 0) row_start = 0;
 	if(column_start < 0) column_start = 0;
 	if(row_end >= dim->chunks.size) row_end = dim->chunks.size - 1;

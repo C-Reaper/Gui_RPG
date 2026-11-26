@@ -36,6 +36,13 @@ void Update(AlxWindow* w){
 	if(Stroke(ALX_KEY_Q).PRESSED){
 		world.world.mode = world.world.mode == ANIMATIONBG_DG ? ANIMATIONBG_ALL : ANIMATIONBG_DG;
 	}
+	if(Stroke(ALX_KEY_TAB).PRESSED){
+		world.world.settype = !world.world.settype;
+	}
+	if(Stroke(ALX_KEY_CAPSLOCK).PRESSED){
+		world.world.fill = !world.world.fill;
+	}
+
 	if(Stroke(ALX_KEY_1).PRESSED){
 		world.selected--;
 	}
@@ -49,16 +56,22 @@ void Update(AlxWindow* w){
 		Player_Move(&world.player,dir_x,dir_y);
 	}else{
 		if(Stroke(ALX_MOUSE_M).PRESSED){
-			Vec2 p = TransformedView_ScreenWorldPos(&world.tv,(Vec2){ w->MouseX,w->MouseY });
+			const Vec2 p = TransformedView_ScreenWorldPos(&world.tv,(Vec2){ w->MouseX,w->MouseY });
 			world.player.e.r.p = p;
 		}
-		if(Stroke(ALX_MOUSE_L).DOWN){
-			Vec2 p = TransformedView_ScreenWorldPos(&world.tv,(Vec2){ w->MouseX,w->MouseY });
-			World_Set(&world.world,floorf(p.x),floorf(p.y),world.selected);
+		if((Stroke(ALX_MOUSE_L).PRESSED && !world.world.fill) || (Stroke(ALX_MOUSE_L).DOWN && world.world.fill)){
+			const Vec2 p = TransformedView_ScreenWorldPos(&world.tv,(Vec2){ w->MouseX,w->MouseY });
+			if(!world.world.settype)
+				World_Set(&world.world,floorf(p.x),floorf(p.y),world.selected);
+			else
+				World_Spawn(&world.world,World_Entity_New(p,world.selected));
 		}
-		if(Stroke(ALX_MOUSE_R).DOWN){
-			Vec2 p = TransformedView_ScreenWorldPos(&world.tv,(Vec2){ w->MouseX,w->MouseY });
-			World_Set(&world.world,floorf(p.x),floorf(p.y),BLOCK_NONE);
+		if((Stroke(ALX_MOUSE_R).PRESSED && !world.world.fill) || (Stroke(ALX_MOUSE_R).DOWN && world.world.fill)){
+			const Vec2 p = TransformedView_ScreenWorldPos(&world.tv,(Vec2){ w->MouseX,w->MouseY });
+			if(!world.world.settype)
+				World_Set(&world.world,floorf(p.x),floorf(p.y),BLOCK_NONE);
+			else
+				World_RemoveAt(&world.world,p.x,p.y);
 		}
 		
 		if(Stroke(ALX_KEY_A).DOWN){
@@ -100,7 +113,7 @@ void Update(AlxWindow* w){
 	TileWorld_RenderDbg(&world,WINDOW_STD_ARGS,GetMouse().x,GetMouse().y);
 
 	CStr_RenderAlxFontf(WINDOW_STD_ARGS,&window.font,0.0f,0.0f,WHITE,"Q: DBG");
-	CStr_RenderAlxFontf(WINDOW_STD_ARGS,&window.font,0.0f,GetAlxFont()->CharSizeY,WHITE,"%s",world.world.mode == ANIMATIONBG_DG ? "Debug" : "None");
+	CStr_RenderAlxFontf(WINDOW_STD_ARGS,&window.font,0.0f,GetAlxFont()->CharSizeY,WHITE,"%s | %s",world.world.mode == ANIMATIONBG_DG ? "Debug" : "None",world.world.fill ? "Fill" : "Put");
 }
 void Delete(AlxWindow* w){
 	TileWorld_Free(&world);
