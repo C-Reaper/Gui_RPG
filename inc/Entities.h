@@ -2,17 +2,15 @@
 #define ENTITIES_H
 
 #include "World.h"
-#include "Figure.h"
-
 #include "/home/codeleaded/System/Static/Library/AudioPlayer.h"
 
 #define ENTITY_FALSE		            0
 #define ENTITY_TRUE			            1
 
-#define PLAYER_DIM_X	               	0.9f
-#define PLAYER_DIM_Y					1.9f
-#define PLAYER_ACC		            	10.0f
-#define PLAYER_ACC_MAX		            20.0f
+#define PLAYER_DIM_X	               	0.7f
+#define PLAYER_DIM_Y					1.5f
+#define PLAYER_ACC		            	30.0f
+#define PLAYER_ACC_MAX		            50.0f
 #define PLAYER_VEL_CLP		            0.01f
 #define PLAYER_VEL_MAX	            	5.0f
 
@@ -30,7 +28,7 @@ typedef enum Entity_LD {
 } Entity_LD;
 
 typedef struct Player {
-	Entity e;
+	World_Entity e;
 	Vec2 spawn;
 	Timepoint start;
 	Entity_LD lookdir;
@@ -59,7 +57,7 @@ void Player_Update(Player* m,World* w,float t){
 	m->e.v.y = F32_Clamp(m->e.v.y,-PLAYER_VEL_MAX,PLAYER_VEL_MAX);
 
 	if(m->e.v.x != 0.0f || m->e.v.y != 0.0f){
-		if(F32_Abs(m->e.v.x) > F32_Abs(m->e.v.y))
+		if(F32_Abs(m->e.v.x) >= F32_Abs(m->e.v.y))
 			m->lookdir = m->e.v.x < 0.0f ? ENTITY_LD_LEFT : ENTITY_LD_RIGHT;
 		else
 			m->lookdir = m->e.v.y < 0.0f ? ENTITY_LD_UP : ENTITY_LD_DOWN;
@@ -85,11 +83,20 @@ void Player_WorldCollision(Player* m,World* w){
 	//if(m->e.r.p.x < 0.0f) m->e.r.p.x = 0.0f;
 	//if(m->e.r.p.y < 0.0f) m->e.r.p.y = 0.0f;
 }
-char Player_IsSolid(Player* m,World* w,unsigned int x,unsigned int y,Side s){
-	Block b = World_Get(w,x,y);
-	return 0;
+char Player_IsSolid(Player* m,World* w,int32_t x,int32_t y,Side s){
+	const Block b = World_Get(w,x,y);
+	switch(b){
+		case BLOCK_WATER:
+		case BLOCK_HOUSE_GRAY:
+		case BLOCK_HOUSE_RED:
+		case BLOCK_CEIL_FLAT:
+		case BLOCK_CEIL_NORMAL:
+			return 1;
+		default:
+			return 0;
+	}
 }
-void Player_Collision(Player* m,World* w,unsigned int x,unsigned int y,Side s){
+void Player_Collision(Player* m,World* w,int32_t x,int32_t y,Side s){
 	Block b = World_Get(w,x,y);
 	
 	if(s==SIDE_BOTTOM || s==SIDE_TOP){
@@ -101,12 +108,20 @@ void Player_Collision(Player* m,World* w,unsigned int x,unsigned int y,Side s){
 	else if(s==SIDE_LEFT && m->e.v.x>0.0f) 		m->e.v.x = 0.0f;
 	else if(s==SIDE_RIGHT && m->e.v.x<0.0f) 	m->e.v.x = 0.0f;
 }
-void Player_EntityCollision(Player* m,World* w,Entity* other,unsigned int x,unsigned int y,Side s){
+void Player_EntityCollision(Player* m,World* w,World_Entity* other,int32_t x,int32_t y,Side s){
 	switch (other->id){
 		//case :		{
 		//	break;
 		//}
 	}
+}
+Player* Player_Load(DataStream* ds){
+	Player* p = (Player*)malloc(sizeof(Player));
+	DataStream_ReadCount(ds,p,0,sizeof(*p));
+	return p;
+}
+void Player_Save(Player* m,DataStream* ds){
+	DataStream_PushCount(ds,m,sizeof(*m));
 }
 SubSprite Player_GetRender(Player* m,EntityAtlas* ea){
 	unsigned int ox = 0U;
@@ -125,24 +140,21 @@ SubSprite Player_GetRender(Player* m,EntityAtlas* ea){
 	return SubSprite_New(&ea->atlas,ox * dx,oy * dy,dx,dy);
 }
 void Player_Free(Player* m){
-	Entity_Free(&m->e);
+	
 }
-Player* Player_New(Vec2 p,Entity_ID id){
+Player Player_By(Vec2 p,Entity_ID id){
 	Player b;
 	b.e.id = id;
-	b.e.r = (Rect){ { p.x,p.y},{ PLAYER_DIM_X,PLAYER_DIM_Y } };
+	b.e.r = (Rect){ p,{ PLAYER_DIM_X,PLAYER_DIM_Y } };
 	b.e.v = (Vec2){ 0.0f,0.0f };
 	b.e.a = (Vec2){ 0.0f,0.0f };
-
-	b.e.WorldCollision = (void(*)(Entity*,World*))Player_WorldCollision;
-	b.e.IsSolid = (char(*)(Entity*,World*,unsigned int,unsigned int,Side))Player_IsSolid;
-	b.e.Collision = (void(*)(Entity*,World*,unsigned int,unsigned int,Side))Player_Collision;
-	b.e.EntityCollision = (void(*)(Entity*,World*,Entity*,unsigned int,unsigned int,Side))Player_EntityCollision;
-
 	b.spawn = p;
 	b.start = 0UL;
 	b.lookdir = ENTITY_LD_DOWN;
-
+	return b;
+}
+Player* Player_New(Vec2 p,Entity_ID id){
+	Player b = Player_By(p,id);
 	Player* hb = malloc(sizeof(Player));
 	memcpy(hb,&b,sizeof(Player));
 	return hb;

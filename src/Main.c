@@ -17,7 +17,6 @@
 #endif
 
 #include "../inc/World.h"
-#include "../inc/Figure.h"
 #include "../inc/Entities.h"
 #include "../inc/TileWorld.h"
 
@@ -28,11 +27,11 @@ void Setup(AlxWindow* w){
 	
 	world = TileWorld_New("./assets/World/","./assets/Tiles/","./assets/Figures/","./assets/Objects/");
 	//TileWorld_AudioPlayerStart(&world);
-	World_ReloadChunks(&world.world);
 }
 void Update(AlxWindow* w){
 	TransformedView_Output(&world.tv,(Vec2){ GetWidth(),GetHeight() });
 	TransformedView_HandlePanZoom(&world.tv,window.Strokes,GetMouse());
+	TransformedView_Focus(&world.tv,&world.player.e.r.p,world.player.e.r.d);
 
 	if(Stroke(ALX_KEY_Q).PRESSED){
 		world.world.mode = world.world.mode == ANIMATIONBG_DG ? ANIMATIONBG_ALL : ANIMATIONBG_DG;
@@ -47,11 +46,11 @@ void Update(AlxWindow* w){
 	if(world.world.mode != ANIMATIONBG_DG){
 		const float dir_x = Stroke(ALX_KEY_A).DOWN ? -1.0f : (Stroke(ALX_KEY_D).DOWN ? 1.0f : 0.0f);
 		const float dir_y = Stroke(ALX_KEY_W).DOWN ? -1.0f : (Stroke(ALX_KEY_S).DOWN ? 1.0f : 0.0f);
-		Figure_Move(&world.player,dir_x,dir_y);
+		Player_Move(&world.player,dir_x,dir_y);
 	}else{
 		if(Stroke(ALX_MOUSE_M).PRESSED){
 			Vec2 p = TransformedView_ScreenWorldPos(&world.tv,(Vec2){ w->MouseX,w->MouseY });
-			world.player.e->r.p = p;
+			world.player.e.r.p = p;
 		}
 		if(Stroke(ALX_MOUSE_L).DOWN){
 			Vec2 p = TransformedView_ScreenWorldPos(&world.tv,(Vec2){ w->MouseX,w->MouseY });
@@ -63,39 +62,41 @@ void Update(AlxWindow* w){
 		}
 		
 		if(Stroke(ALX_KEY_A).DOWN){
-			world.player.e->v.x = -PLAYER_VEL_MAX;
+			world.player.e.v.x = -PLAYER_VEL_MAX;
 		}else if(Stroke(ALX_KEY_D).DOWN){
-			world.player.e->v.x = PLAYER_VEL_MAX;
+			world.player.e.v.x = PLAYER_VEL_MAX;
 		}else{
-			world.player.e->v.x = 0.0f;
-			world.player.e->a.x = 0.0f;
+			world.player.e.v.x = 0.0f;
+			world.player.e.a.x = 0.0f;
 		}
 
 		if(Stroke(ALX_KEY_W).DOWN){
-			world.player.e->v.y = -PLAYER_VEL_MAX;
+			world.player.e.v.y = -PLAYER_VEL_MAX;
 		}else if(Stroke(ALX_KEY_S).DOWN){
-			world.player.e->v.y = PLAYER_VEL_MAX;
+			world.player.e.v.y = PLAYER_VEL_MAX;
 		}else{
-			world.player.e->v.y = 0.0f;
-			world.player.e->a.y = 0.0f;
+			world.player.e.v.y = 0.0f;
+			world.player.e.a.y = 0.0f;
 		}
 	}
 
-	world.world.t_origin_x = (int32_t)floorf(world.player.e->r.p.x) / WORLD_CHUNK_WIDTH;
-	world.world.t_origin_y = (int32_t)floorf(world.player.e->r.p.y) / WORLD_CHUNK_HEIGHT;
+	world.world.t_origin_x = (int32_t)floorf(world.player.e.r.p.x / WORLD_CHUNK_WIDTH);
+	world.world.t_origin_y = (int32_t)floorf(world.player.e.r.p.y / WORLD_CHUNK_HEIGHT);
 	World_UpdateChunks(&world.world);
 
 	World_Update(&world.world,&world.tv,w->ElapsedTime);
 	World_Collisions(&world.world,&world.tv);
 
-	Figure_Update(&world.player,&world.world,w->ElapsedTime);
-	Figure_Collision(&world.player,&world.world);
+	Player_Update(&world.player,&world.world,w->ElapsedTime);
+	World_CollisionsEntity(&world.world,&world.tv,&world.player.e);
 
 	Clear(LIGHT_BLUE);
 
-	World_Render(&world.world,&world.tv,WINDOW_STD_ARGS);
-	Figure_Render(&world.player,&world.world,&world.tv,WINDOW_STD_ARGS);
+	World_RenderTiles(&world.world,&world.tv,WINDOW_STD_ARGS);
 	World_RenderEntities(&world.world,&world.tv,WINDOW_STD_ARGS);
+	World_RenderEntity(&world.world,&world.tv,WINDOW_STD_ARGS,&world.player.e);
+	
+	World_Render(&world.world,&world.tv,WINDOW_STD_ARGS);
 	TileWorld_RenderDbg(&world,WINDOW_STD_ARGS,GetMouse().x,GetMouse().y);
 
 	CStr_RenderAlxFontf(WINDOW_STD_ARGS,&window.font,0.0f,0.0f,WHITE,"Q: DBG");
