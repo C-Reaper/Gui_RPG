@@ -14,6 +14,7 @@
 *.bak
 *.swp
 
+assets/World/
 .vscode/
 *.log
 *.DS_Store
