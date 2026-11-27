@@ -303,9 +303,9 @@ TileWorld TileWorld_New(char* path_world,char* path_blocks,char* path_figures,ch
         (EntityAtlas[]){
 		    EntityAtlas_Make(
 				path_figures,
-				"Blackhair.png",
-				4,4,
-				1.0f,1.6f,
+				"Fox6.png",
+				4,6,
+				2.0f,1.6f,
 				(void(*)(void*,void*,const float))Player_Update,
 				(void(*)(void*,const float,const float))Player_Move,
 				(SubSprite(*)(void*,EntityAtlas*))Player_GetRender,

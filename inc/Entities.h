@@ -334,6 +334,8 @@ Player* Player_New(Vec2 p,Entity_ID id){
 	memcpy(hb,&b,sizeof(Player));
 	return hb;
 }
+
+
 #define WOOD_ITEM_DIM_X				0.65f
 #define WOOD_ITEM_DIM_Y				0.65f
 
@@ -361,6 +363,7 @@ World_Item_Entity* World_Item_Entity_By(Vec2 p,Entity_ID id){
 	item->stack = (World_Item_Stack){ .id = ITEM_WOOD,.count = 1U };
 	return item;
 }
+
 
 #define TREE_DIM_X	               	1.5f
 #define TREE_DIM_Y					1.25f
@@ -402,6 +405,7 @@ void* World_Entity_New(Vec2 p,Entity_ID id){
 		case ENTITY_ID_BLACKHAIR:	return Player_New(p,id);
 		case ENTITY_ID_TREE:		return Tree_New(p,id);
 		case ENTITY_ID_WOOD:		return World_Item_Entity_By(p,id);
+		default:					break;
 	}
 	return NULL;
 }
