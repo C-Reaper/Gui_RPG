@@ -26,11 +26,18 @@
 #define BLOCK_DOOR							8U
 #define BLOCK_CEIL_FLAT						9U
 #define BLOCK_CEIL_NORMAL					10U
+#define BLOCK_SHADOW						11U
+#define BLOCK_PLANKS						12U
 #define BLOCK_BORDER						0xFFFFFFFFU
 typedef uint32_t Block;
 
 #define ITEM_NONE							0U
+#define ITEM_WOOD							1U
 typedef uint32_t Item;
+
+#define WORLD_ITEM_WOOD_MAX_STACK			64U
+#define WORLD_CHEST_INVENTORY_WIDTH			5U
+#define WORLD_CHEST_INVENTORY_SIZE			100U
 
 #define WORLD_SPRITE_DEPTH_BACKGROUND		0U
 #define WORLD_SPRITE_DEPTH_UNDERLAY			1U
@@ -65,12 +72,35 @@ typedef unsigned short SpawnType;
 #define WORLD_NEIGHBOUR_BOTTOM_MID 			7
 #define WORLD_NEIGHBOUR_BOTTOM_RIGHT 		8
 
+typedef struct World World;
 unsigned char World_Neighbour_Mask(unsigned char* bits){
 	unsigned char mask = 0U;
 	for(int i = 0;bits[i] != WORLD_NEIGHBOUR_NONE && bits[i] < 9;i++){
 		mask |= 1 << (bits[i] - 1);
 	}
 	return mask;
+}
+char World_IsSolid(Block b){
+	switch(b){
+		case BLOCK_HOUSE_GRAY:
+		case BLOCK_HOUSE_RED:
+		case BLOCK_CEIL_FLAT:
+		case BLOCK_CEIL_NORMAL:
+		case BLOCK_CHEST:
+		case BLOCK_DOOR:
+			return 1;
+		default:
+			return 0;
+	}
+}
+char World_IsWalkable(Block b){
+	switch(b){
+		case BLOCK_WATER:
+		case BLOCK_SHADOW:
+			return 0;
+		default:
+			return 1;
+	}
 }
 
 typedef struct TargetRect {
@@ -86,9 +116,6 @@ int TargetRect_Compare(const void* e1,const void* e2) {
     return d1 == d2 ? 0 : (d1 < d2 ? -1 : 1);
 }
 
-
-
-typedef struct World World;
 
 typedef struct Animation {
 	AnimationType type;
@@ -332,7 +359,6 @@ void Animation_Free(Animation* a){
 
 
 
-
 typedef struct EntityAtlas {
 	Sprite atlas;
 	unsigned int cx;
@@ -474,16 +500,161 @@ typedef struct World_Item_Stack {
 	};
 } World_Item_Stack;
 
+typedef struct World_Inventory {
+	World_Item_Stack* slots;
+	uint32_t size;
+	uint32_t width;
+} World_Inventory;
+
+uint32_t World_Item_MaxStack(Item id){
+	switch(id){
+		case ITEM_WOOD: return WORLD_ITEM_WOOD_MAX_STACK;
+		default: return 1U;
+	}
+}
+char World_Inventory_Init(World_Inventory* inventory,uint32_t size,uint32_t width){
+	if(!inventory || width == 0U) return 0;
+	inventory->slots = size ? (World_Item_Stack*)calloc(size,sizeof(World_Item_Stack)) : NULL;
+	if(size && !inventory->slots){
+		inventory->size = 0U;
+		inventory->width = 0U;
+		return 0;
+	}
+	inventory->size = size;
+	inventory->width = width;
+	return 1;
+}
+void World_Inventory_Free(World_Inventory* inventory){
+	if(!inventory) return;
+	free(inventory->slots);
+	memset(inventory,0,sizeof(*inventory));
+}
+uint32_t World_Inventory_Add(World_Inventory* inventory,World_Item_Stack* incoming){
+	if(!inventory || !incoming || incoming->id == ITEM_NONE)
+		return 0U;
+
+	const uint32_t max_stack = World_Item_MaxStack(incoming->id);
+	if(max_stack == 1U){
+		for(uint32_t i = 0U;i<inventory->size;i++){
+			World_Item_Stack* slot = &inventory->slots[i];
+			if(slot->id != ITEM_NONE) continue;
+			*slot = *incoming;
+			incoming->id = ITEM_NONE;
+			return 1U;
+		}
+		return 0U;
+	}
+	if(incoming->count == 0U) return 0U;
+
+	const uint32_t original_count = incoming->count;
+	for(uint32_t i = 0U;i<inventory->size && incoming->count > 0U;i++){
+		World_Item_Stack* slot = &inventory->slots[i];
+		if(slot->id != incoming->id || slot->count >= max_stack) continue;
+
+		const uint32_t space = max_stack - slot->count;
+		const uint32_t add = incoming->count < space ? incoming->count : space;
+		slot->count += add;
+		incoming->count -= add;
+	}
+
+	for(uint32_t i = 0U;i<inventory->size && incoming->count > 0U;i++){
+		World_Item_Stack* slot = &inventory->slots[i];
+		if(slot->id != ITEM_NONE) continue;
+
+		const uint32_t add = incoming->count < max_stack ? incoming->count : max_stack;
+		*slot = *incoming;
+		slot->count = add;
+		incoming->count -= add;
+	}
+
+	if(incoming->count == 0U)
+		incoming->id = ITEM_NONE;
+	return original_count - incoming->count;
+}
+void World_Inventory_Swap(World_Inventory* inventory,uint32_t index,World_Item_Stack* hand){
+	if(!inventory || !hand || index >= inventory->size) return;
+	World_Item_Stack swap = inventory->slots[index];
+	inventory->slots[index] = *hand;
+	*hand = swap;
+}
+void World_Inventory_LeftClick(World_Inventory* inventory,uint32_t index,World_Item_Stack* hand){
+	if(!inventory || !hand || index >= inventory->size) return;
+
+	World_Item_Stack* slot = &inventory->slots[index];
+	if(hand->id != ITEM_NONE && slot->id == hand->id && World_Item_MaxStack(hand->id) > 1U &&
+	   slot->count < World_Item_MaxStack(slot->id)){
+		const uint32_t space = World_Item_MaxStack(slot->id) - slot->count;
+		const uint32_t move = hand->count < space ? hand->count : space;
+		slot->count += move;
+		hand->count -= move;
+		if(hand->count == 0U)
+			*hand = (World_Item_Stack){ .id = ITEM_NONE };
+		return;
+	}
+
+	World_Inventory_Swap(inventory,index,hand);
+}
+void World_Inventory_RightClick(World_Inventory* inventory,uint32_t index,World_Item_Stack* hand){
+	if(!inventory || !hand || index >= inventory->size) return;
+
+	World_Item_Stack* slot = &inventory->slots[index];
+	if(hand->id == ITEM_NONE){
+		if(slot->id == ITEM_NONE) return;
+		if(World_Item_MaxStack(slot->id) == 1U){
+			*hand = *slot;
+			*slot = (World_Item_Stack){ .id = ITEM_NONE };
+			return;
+		}
+		if(slot->count == 0U){
+			*slot = (World_Item_Stack){ .id = ITEM_NONE };
+			return;
+		}
+
+		const uint32_t take = slot->count / 2U + slot->count % 2U;
+		*hand = (World_Item_Stack){ .id = slot->id,.count = take };
+		slot->count -= take;
+		if(slot->count == 0U)
+			*slot = (World_Item_Stack){ .id = ITEM_NONE };
+		return;
+	}
+
+	if(slot->id == ITEM_NONE){
+		if(World_Item_MaxStack(hand->id) == 1U){
+			*slot = *hand;
+			*hand = (World_Item_Stack){ .id = ITEM_NONE };
+			return;
+		}
+		if(hand->count == 0U) return;
+		*slot = (World_Item_Stack){ .id = hand->id,.count = 1U };
+		hand->count--;
+		if(hand->count == 0U)
+			*hand = (World_Item_Stack){ .id = ITEM_NONE };
+		return;
+	}
+
+	if(slot->id == hand->id && World_Item_MaxStack(hand->id) > 1U && hand->count > 0U){
+		const uint32_t max_stack = World_Item_MaxStack(slot->id);
+		if(slot->count < max_stack){
+			slot->count++;
+			hand->count--;
+			if(hand->count == 0U)
+				*hand = (World_Item_Stack){ .id = ITEM_NONE };
+			return;
+		}
+	}
+
+	World_Inventory_Swap(inventory,index,hand);
+}
+
 typedef struct World_Chunk_Chest {
-	uint32_t count;
-	uint32_t padding;
-	World_Item_Stack* chest;
+	World_Inventory inventory;
 } World_Chunk_Chest;
 
 typedef struct World_Chunk_Portal {
-	uint32_t dimension;
+	uint64_t dimension;
 	int32_t tx;
 	int32_t ty;
+	uint8_t is_overworld;
 } World_Chunk_Portal;
 
 
@@ -509,25 +680,36 @@ World_Chunk_Tag World_Chunk_Tag_New(uint8_t cx,uint8_t cy){
 	ct.type = WORLD_CHUNK_TAG_TYPE_NONE;
 	return ct;
 }
+World_Chunk_Tag World_Chunk_Tag_Portal_New(uint8_t cx,uint8_t cy,uint64_t dimension,int32_t tx,int32_t ty,char is_overworld){
+	World_Chunk_Tag ct = World_Chunk_Tag_New(cx,cy);
+	ct.type = WORLD_CHUNK_TAG_TYPE_PORTAL;
+	ct.portal = (World_Chunk_Portal){
+		.dimension = dimension,
+		.tx = tx,
+		.ty = ty,
+		.is_overworld = is_overworld
+	};
+	return ct;
+}
 World_Chunk_Tag World_Chunk_Tag_Chest_New(uint8_t cx,uint8_t cy,uint32_t count){
 	World_Chunk_Tag ct;
 	memset(&ct,0,sizeof(ct));
 	ct.cx = cx;
 	ct.cy = cy;
 	ct.type = WORLD_CHUNK_TAG_TYPE_CHEST;
-	ct.chest.count = count;
-	ct.chest.chest = (World_Item_Stack*)malloc(sizeof(World_Item_Stack) * count);
-	memset(ct.chest.chest,0,sizeof(World_Item_Stack) * count);
+	if(!World_Inventory_Init(&ct.chest.inventory,count,WORLD_CHEST_INVENTORY_WIDTH))
+		printf("[World_Chunk_Tag]: Chest_New -> failed to allocate %u slots\n",count);
 	return ct;
 }
 World_Chunk_Tag World_Chunk_Tag_Chest_Tressure(uint8_t cx,uint8_t cy,uint32_t count){
 	World_Chunk_Tag ct = World_Chunk_Tag_Chest_New(cx,cy,count);
+	if(!ct.chest.inventory.slots) return ct;
 	
 	for(uint32_t i = 0U;i<count;i++){
 		const uint32_t chance = Random_u32_MinMax(0U,10U);
 		
 		if(chance == 0U){
-			ct.chest.chest[i] = (World_Item_Stack){
+			ct.chest.inventory.slots[i] = (World_Item_Stack){
 				.id = ITEM_NONE,
 				.count = Random_u32_MinMax(1U,5U)
 			};
@@ -548,18 +730,23 @@ World_Chunk_Tag World_Chunk_Tag_Load(DataStream* ds){
 			uint32_t count = 0U;
 			DataStream_ReadCount(ds,&count,0,sizeof(count));
 
-			ct.chest = (World_Chunk_Chest){
-				.chest = (World_Item_Stack*)malloc(sizeof(World_Item_Stack) * count),
-				.count = count
-			};
-			
-			DataStream_ReadCount(ds,ct.chest.chest,0,sizeof(World_Item_Stack) * count);
+			ct.chest.inventory = (World_Inventory){ 0 };
+			if(count > (uint32_t)(ds->size / (int32_t)sizeof(World_Item_Stack)) ||
+			   !World_Inventory_Init(&ct.chest.inventory,
+					count < WORLD_CHEST_INVENTORY_SIZE ? WORLD_CHEST_INVENTORY_SIZE : count,
+					WORLD_CHEST_INVENTORY_WIDTH)){
+				printf("[World_Chunk_Tag]: Load -> invalid chest inventory size %u\n",count);
+				ct.type = WORLD_CHUNK_TAG_TYPE_NONE;
+				break;
+			}
+			DataStream_ReadCount(ds,ct.chest.inventory.slots,0,(int)(sizeof(World_Item_Stack) * count));
 			break;
 		}
 		case WORLD_CHUNK_TAG_TYPE_PORTAL:{
 			DataStream_ReadCount(ds,&ct.portal.dimension,0,sizeof(ct.portal.dimension));
 			DataStream_ReadCount(ds,&ct.portal.tx,0,sizeof(ct.portal.tx));
 			DataStream_ReadCount(ds,&ct.portal.ty,0,sizeof(ct.portal.ty));
+			DataStream_ReadCount(ds,&ct.portal.is_overworld,0,sizeof(ct.portal.is_overworld));
 			break;
 		}
 	}
@@ -572,14 +759,15 @@ void World_Chunk_Tag_Save(World_Chunk_Tag* ct,DataStream* ds){
 
 	switch (ct->type){
 		case WORLD_CHUNK_TAG_TYPE_CHEST:{
-			DataStream_PushCount(ds,&ct->chest.count,sizeof(ct->chest.count));
-			DataStream_PushCount(ds,ct->chest.chest,sizeof(World_Item_Stack) * ct->chest.count);
+			DataStream_PushCount(ds,&ct->chest.inventory.size,sizeof(ct->chest.inventory.size));
+			DataStream_PushCount(ds,ct->chest.inventory.slots,(int)(sizeof(World_Item_Stack) * ct->chest.inventory.size));
 			break;
 		}
 		case WORLD_CHUNK_TAG_TYPE_PORTAL:{
 			DataStream_PushCount(ds,&ct->portal.dimension,sizeof(ct->portal.dimension));
 			DataStream_PushCount(ds,&ct->portal.tx,sizeof(ct->portal.tx));
 			DataStream_PushCount(ds,&ct->portal.ty,sizeof(ct->portal.ty));
+			DataStream_PushCount(ds,&ct->portal.is_overworld,sizeof(ct->portal.is_overworld));
 			break;
 		}
 	}
@@ -587,7 +775,7 @@ void World_Chunk_Tag_Save(World_Chunk_Tag* ct,DataStream* ds){
 void World_Chunk_Tag_Free(World_Chunk_Tag* ct){
 	switch (ct->type){
 		case WORLD_CHUNK_TAG_TYPE_CHEST:{
-			free(ct->chest.chest);
+			World_Inventory_Free(&ct->chest.inventory);
 			break;
 		}
 	}
@@ -621,7 +809,7 @@ World_Chunk World_Chunk_New(int32_t x,int32_t y){
 	memset(&ch.data,0,sizeof(ch.data));
 	return ch;
 }
-World_Chunk World_Chunk_Generate(int32_t x,int32_t y){
+World_Chunk World_Chunk_Generate(int32_t x,int32_t y,Block background){
 	World_Chunk ch;
 	ch.x = x;
 	ch.y = y;
@@ -629,7 +817,7 @@ World_Chunk World_Chunk_Generate(int32_t x,int32_t y){
 	ch.entities = PVector_New();
 
 	for(int i = 0;i<WORLD_CHUNK_WIDTH * WORLD_CHUNK_HEIGHT;i++)
-		ch.data[i] = BLOCK_GRAS;
+		ch.data[i] = background;
 
 	return ch;
 }
@@ -638,7 +826,7 @@ World_Chunk World_Chunk_Null(){
 	memset(&ch,0,sizeof(ch));
 	return ch;
 }
-World_Chunk World_Chunk_Load(World* w,char* path,int32_t x,int32_t y){
+World_Chunk World_Chunk_Load(World* w,char* path,int32_t x,int32_t y,Block background){
 	CStr fp = CStr_Format("%s/Chunk_%d_%d",path,(Number)x,(Number)y);
 	
 	FilesSize size;
@@ -646,7 +834,7 @@ World_Chunk World_Chunk_Load(World* w,char* path,int32_t x,int32_t y){
 	
 	if(!data){
 		CStr_Free(&fp);
-		return World_Chunk_Generate(x,y);
+		return World_Chunk_Generate(x,y,background);
 	}
 
 	DataStream ds = DataStream_By(data,size);
@@ -767,11 +955,11 @@ typedef Vector World_Chunk_Row;
 World_Chunk_Row World_Chunk_Row_New(){
 	return Vector_New(sizeof(World_Chunk));
 }
-World_Chunk_Row World_Chunk_Row_Load(World* w,char* path,int32_t x,int32_t y){
+World_Chunk_Row World_Chunk_Row_Load(World* w,char* path,int32_t x,int32_t y,Block background){
 	World_Chunk_Row row = World_Chunk_Row_New();
 	
 	for(int32_t i = 0;i<WORLD_CHUNK_COUNT_X;i++){
-		World_Chunk ch = World_Chunk_Load(w,path,x + i,y);
+		World_Chunk ch = World_Chunk_Load(w,path,x + i,y,background);
 		Vector_Push(&row,&ch);
 	}
 
@@ -795,34 +983,27 @@ void World_Chunk_Row_Free(World* w,World_Chunk_Row* row){
 typedef struct World_Dimension {
 	Vector chunks;
 	Block bg_tile;
+	uint64_t id;
+	char is_overworld;
+	char deleted;
+	char* path;
 } World_Dimension;
 
-World_Dimension World_Dimension_New(){
+World_Dimension World_Dimension_New(uint64_t id,char is_overworld,char* path,Block bg_tile){
 	World_Dimension wd;
 	wd.chunks = Vector_New(sizeof(World_Chunk_Row));
-	wd.bg_tile = BLOCK_NONE;
+	wd.bg_tile = bg_tile;
+	wd.id = id;
+	wd.is_overworld = is_overworld;
+	wd.deleted = 0;
+	wd.path = CStr_Cpy(path);
+	Files_Mkdir(path);
 	return wd;
 }
-World_Dimension World_Dimension_Move(Vector chunks){
-	World_Dimension wd;
-	wd.chunks = chunks;
-	wd.bg_tile = BLOCK_NONE;
-	return wd;
-}
-World_Dimension World_Dimension_Load(World* w,char* path,int32_t x,int32_t y){
-	World_Dimension wd = World_Dimension_New();
-	
-	for(int32_t i = 0;i<WORLD_CHUNK_COUNT_Y;i++){
-		World_Chunk_Row row = World_Chunk_Row_Load(w,path,x,y);
-		Vector_Push(&wd.chunks,&row);
-	}
-
-	return wd;
-}
-void World_Dimension_Save(World_Dimension* wd,World* w,char* path){
+void World_Dimension_Save(World_Dimension* wd,World* w){
 	for(uint32_t i = 0U;i<wd->chunks.size;i++){
 		World_Chunk_Row* row = (World_Chunk_Row*)Vector_Get(&wd->chunks,i);
-		World_Chunk_Row_Save(row,w,path);
+		World_Chunk_Row_Save(row,w,wd->path);
 	}
 }
 void World_Dimension_Free(World* w,World_Dimension* wd){
@@ -831,6 +1012,7 @@ void World_Dimension_Free(World* w,World_Dimension* wd){
 		World_Chunk_Row_Free(w,row);
 	}
 	Vector_Free(&wd->chunks);
+	CStr_Free(&wd->path);
 }
 
 
@@ -875,14 +1057,24 @@ typedef struct World{
 	int32_t t_origin_x;
 	int32_t t_origin_y;
 	Vec2 spawn;
+	float portal_exit_timer;
 	AnimationBg mode;
 	AnimationBg settype;
-	AnimationBg fill;
+	uint8_t fill;
+	uint8_t inventory;
+	uint8_t inventory_has_chest;
+	int32_t inventory_chest_x;
+	int32_t inventory_chest_y;
+	uint32_t inventory_scroll_player;
+	uint32_t inventory_scroll_chest;
 	char* path;
 	void* (*Spawner)(Vec2,SpawnType,unsigned int*);
 } World;
 
 void World_ReloadChunks(World* w);
+char World_ChangeDimension(World* w,uint64_t id,char is_overworld,int32_t tx,int32_t ty,char* created);
+void World_Dimension_Destroy(World* w,uint64_t id);
+void World_Portal_Overworld_Unlink(World* w,uint64_t id);
 World World_Init(char* path){
 	World w;
 	w.animations = Vector_New(sizeof(Animation));
@@ -890,8 +1082,15 @@ World World_Init(char* path){
 	w.mode = ANIMATIONBG_ALL;
 	w.settype = 0U;
 	w.fill = 0U;
+	w.inventory = 0U;
+	w.inventory_has_chest = 0U;
+	w.inventory_chest_x = 0;
+	w.inventory_chest_y = 0;
+	w.inventory_scroll_player = 0U;
+	w.inventory_scroll_chest = 0U;
 
 	w.path = CStr_Cpy(path);
+	Files_Mkdir(path);
 	w.sprite_out = Vector_New(sizeof(World_Sprite));
 	w.dims = Vector_New(sizeof(World_Dimension));
 	w.dim_in = 0U;
@@ -901,8 +1100,12 @@ World World_Init(char* path){
 	w.t_origin_x = 0;
 	w.t_origin_y = 0;
 	w.spawn = (Vec2){ 0.0f,0.0f };
+	w.portal_exit_timer = 0.0f;
 
-	Vector_Push(&w.dims,(World_Dimension[]){ World_Dimension_New() });
+	CStr dimension_path = CStr_Format("%s/Dimension_0",path);
+	World_Dimension overworld = World_Dimension_New(0U,1,dimension_path,BLOCK_GRAS);
+	CStr_Free(&dimension_path);
+	Vector_Push(&w.dims,&overworld);
 	return w;
 }
 World World_New(char* path){
@@ -929,7 +1132,9 @@ uint32_t World_Block_RenderDepth(Block b){
 		case BLOCK_WATER: return WORLD_SPRITE_DEPTH_GROUND;
 		case BLOCK_GRAS:
 		case BLOCK_STONE:
-		case BLOCK_DOCK: return WORLD_SPRITE_DEPTH_GROUND;
+		case BLOCK_DOCK:
+		case BLOCK_SHADOW:
+		case BLOCK_PLANKS: return WORLD_SPRITE_DEPTH_GROUND;
 		default: return WORLD_SPRITE_DEPTH_OBJECT;
 	}
 }
@@ -970,7 +1175,28 @@ void World_Chunk_Free(World* w,World_Chunk* ch){
 	Vector_Free(&ch->tags);
 	PVector_Free(&ch->entities);
 }
+uint64_t World_Dimension_Id(int32_t x,int32_t y){
+	return ((uint64_t)(uint32_t)x << 32U) | (uint32_t)y;
+}
+void World_Dimension_Key(uint64_t id,int32_t* x,int32_t* y){
+	if(x) *x = (int32_t)(uint32_t)(id >> 32U);
+	if(y) *y = (int32_t)(uint32_t)id;
+}
+uint32_t World_Dimension_Ensure(World* w,uint64_t id,char is_overworld,char* path,Block bg_tile,char* created){
+	for(uint32_t i = 0U;i<w->dims.size;i++){
+		World_Dimension* dim = (World_Dimension*)Vector_Get(&w->dims,i);
+		if(dim->id == id && dim->is_overworld == is_overworld){
+			if(created) *created = 0;
+			dim->deleted = 0;
+			return i;
+		}
+	}
 
+	World_Dimension dim = World_Dimension_New(id,is_overworld,path,bg_tile);
+	Vector_Push(&w->dims,&dim);
+	if(created) *created = 1;
+	return (uint32_t)w->dims.size - 1U;
+}
 World_Chunk* World_FindChunk(World* w,int32_t x,int32_t y){
 	World_Dimension* dim = (World_Dimension*)Vector_Get(&w->dims,w->dim_in);
 	Vector* chunks = &dim->chunks;
@@ -983,6 +1209,18 @@ World_Chunk* World_FindChunk(World* w,int32_t x,int32_t y){
 		}
 	}
 	return NULL;
+}
+World_Inventory* World_Chest_Inventory_Get(World* w,int32_t x,int32_t y){
+	const int32_t chunk_x = (int32_t)floorf((float)x / (float)WORLD_CHUNK_WIDTH);
+	const int32_t chunk_y = (int32_t)floorf((float)y / (float)WORLD_CHUNK_HEIGHT);
+	World_Chunk* ch = World_FindChunk(w,chunk_x,chunk_y);
+	if(!ch) return NULL;
+
+	const uint8_t cx = (uint8_t)(x - chunk_x * WORLD_CHUNK_WIDTH);
+	const uint8_t cy = (uint8_t)(y - chunk_y * WORLD_CHUNK_HEIGHT);
+	World_Chunk_Tag* tag = World_Chunk_Find(ch,cx,cy);
+	if(!tag || tag->type != WORLD_CHUNK_TAG_TYPE_CHEST) return NULL;
+	return &tag->chest.inventory;
 }
 char World_Chunks_AreCurrent(World* w,int32_t origin_x,int32_t origin_y){
 	Vector* chunks = (Vector*)Vector_Get(&w->dims,w->dim_in);
@@ -1005,7 +1243,7 @@ char World_Chunks_AreCurrent(World* w,int32_t origin_x,int32_t origin_y){
 void World_Block_Place(World* w,World_Chunk* ch,uint8_t cx,uint8_t cy,Block b){
 	switch (b){
 		case BLOCK_CHEST:{
-			World_Chunk_Tag ct = World_Chunk_Tag_Chest_New(cx,cy,20);
+			World_Chunk_Tag ct = World_Chunk_Tag_Chest_New(cx,cy,WORLD_CHEST_INVENTORY_SIZE);
 			Vector_Push(&ch->tags,&ct);
 			break;
 		}
@@ -1017,6 +1255,16 @@ void World_Block_Remove(World* w,World_Chunk* ch,uint8_t cx,uint8_t cy){
 		return;
 	}
 	
+	World_Chunk_Tag* tag = World_Chunk_Find(ch,cx,cy);
+	if(tag && tag->type == WORLD_CHUNK_TAG_TYPE_PORTAL){
+		if(tag->portal.is_overworld){
+			World_Dimension* dim = (World_Dimension*)Vector_Get(&w->dims,w->dim_in);
+			if(dim && !dim->is_overworld)
+				World_Dimension_Destroy(w,dim->id);
+		}else{
+			World_Dimension_Destroy(w,tag->portal.dimension);
+		}
+	}
 	World_Chunk_Remove(ch,cx,cy);
 }
 
@@ -1101,6 +1349,82 @@ void World_Set(World* w,int32_t x,int32_t y,Block b){
 	ch->data[ch_y * WORLD_CHUNK_WIDTH + ch_x] = b;
 	World_Block_Remove(w,ch,ch_x,ch_y);
 	World_Block_Place(w,ch,ch_x,ch_y,b);
+}
+void World_Portal_Tag_Set(World* w,int32_t x,int32_t y,uint64_t dimension,int32_t tx,int32_t ty,char is_overworld){
+	const Vic2 chunk_coord = World_GetChunkCoord(w,x,y);
+	World_Chunk* ch = World_FindChunk(w,chunk_coord.x,chunk_coord.y);
+	if(!ch) return;
+
+	const uint8_t cx = (uint8_t)(x - chunk_coord.x * WORLD_CHUNK_WIDTH);
+	const uint8_t cy = (uint8_t)(y - chunk_coord.y * WORLD_CHUNK_HEIGHT);
+	World_Chunk_Tag* tag = World_Chunk_Find(ch,cx,cy);
+	if(tag){
+		World_Chunk_Tag_Free(tag);
+		*tag = World_Chunk_Tag_Portal_New(cx,cy,dimension,tx,ty,is_overworld);
+	}else{
+		World_Chunk_Tag new_tag = World_Chunk_Tag_Portal_New(cx,cy,dimension,tx,ty,is_overworld);
+		Vector_Push(&ch->tags,&new_tag);
+	}
+}
+void World_House_Initialize(World* w,uint64_t id){
+	int32_t source_x;
+	int32_t source_y;
+	World_Dimension_Key(id,&source_x,&source_y);
+
+	World_Set(w,0,0,BLOCK_DOOR);
+	World_Set(w,0,1,BLOCK_DOOR);
+	for(int32_t x = -1;x<=2;x++){
+		World_Set(w,x,2,BLOCK_PLANKS);
+		World_Set(w,x,3,BLOCK_PLANKS);
+	}
+	World_Portal_Tag_Set(w,0,0,0U,source_x,source_y,1);
+	World_Portal_Tag_Set(w,0,1,0U,source_x,source_y,1);
+}
+char World_Portal_Travel(World* w,int32_t x,int32_t y,Vec2* player_position){
+	World_Dimension* current = (World_Dimension*)Vector_Get(&w->dims,w->dim_in);
+	if(!current || current->deleted) return 0;
+
+	const Vic2 chunk_coord = World_GetChunkCoord(w,x,y);
+	World_Chunk* chunk = World_FindChunk(w,chunk_coord.x,chunk_coord.y);
+	if(!chunk) return 0;
+	const uint8_t cx = (uint8_t)(x - chunk_coord.x * WORLD_CHUNK_WIDTH);
+	const uint8_t cy = (uint8_t)(y - chunk_coord.y * WORLD_CHUNK_HEIGHT);
+	World_Chunk_Tag* tag = World_Chunk_Find(chunk,cx,cy);
+
+	if(!tag){
+		if(!current->is_overworld) return 0;
+
+		int32_t top_y = y;
+		while(top_y > INT32_MIN && World_Get(w,x,top_y - 1) == BLOCK_DOOR)
+			top_y--;
+		int32_t bottom_y = y;
+		while(bottom_y < INT32_MAX && World_Get(w,x,bottom_y + 1) == BLOCK_DOOR)
+			bottom_y++;
+
+		const uint64_t id = World_Dimension_Id(x,top_y);
+		for(int32_t door_y = top_y;door_y <= bottom_y;door_y++)
+			World_Portal_Tag_Set(w,x,door_y,id,0,0,0);
+
+		char created = 0;
+		if(!World_ChangeDimension(w,id,0,0,0,&created)) return 0;
+		if(created)
+			World_House_Initialize(w,id);
+		if(player_position)
+			*player_position = (Vec2){ 0.0f,0.0f };
+		return 1;
+	}
+	if(tag->type != WORLD_CHUNK_TAG_TYPE_PORTAL) return 0;
+
+	const World_Chunk_Portal portal = tag->portal;
+	char created = 0;
+	if(!World_ChangeDimension(w,portal.dimension,portal.is_overworld,portal.tx,portal.ty,&created))
+		return 0;
+	if(!portal.is_overworld && (created || World_Get(w,0,0) != BLOCK_DOOR))
+		World_House_Initialize(w,portal.dimension);
+
+	if(player_position)
+		*player_position = (Vec2){ (float)portal.tx,(float)portal.ty };
+	return 1;
 }
 
 void* World_Spawn(World* w,void* data){
@@ -1264,29 +1588,39 @@ char World_Chunks_Contain(Vector* chunks,int32_t x,int32_t y){
 }
 void World_SaveChunks(World* w){
 	World_Dimension* dim = (World_Dimension*)Vector_Get(&w->dims,w->dim_in);
-	if(!dim) return;
+	if(!dim || dim->deleted) return;
 
 	for(uint32_t row_index = 0U;row_index < dim->chunks.size;row_index++){
 		World_Chunk_Row* row = (World_Chunk_Row*)Vector_Get(&dim->chunks,row_index);
 		for(uint32_t chunk_index = 0U;chunk_index < row->size;chunk_index++)
-			World_Chunk_Save((World_Chunk*)Vector_Get(row,chunk_index),w,w->path);
+			World_Chunk_Save((World_Chunk*)Vector_Get(row,chunk_index),w,dim->path);
 	}
+}
+void World_Dimension_ClearChunks(World* w,World_Dimension* dim){
+	for(uint32_t i = 0U;i<dim->chunks.size;i++)
+		World_Chunk_Row_Free(w,(World_Chunk_Row*)Vector_Get(&dim->chunks,i));
+	Vector_Free(&dim->chunks);
+	dim->chunks = Vector_New(sizeof(World_Chunk_Row));
+}
+void World_Dimension_RemoveAt(World* w,uint32_t index){
+	if(index >= w->dims.size) return;
+	World_Dimension_Free(w,(World_Dimension*)Vector_Get(&w->dims,index));
+	Vector_Remove(&w->dims,(int)index);
+	if(index < w->dim_in)
+		w->dim_in--;
+	else if(index == w->dim_in)
+		w->dim_in = 0U;
 }
 void World_ReloadChunks(World* w){
 	World_Dimension* dim = (World_Dimension*)Vector_Get(&w->dims,w->dim_in);
-	Vector* chunks = &dim->chunks;
 	World_SaveChunks(w);
-
-	for(int32_t i = 0;i<chunks->size;i++){
-		World_Chunk_Row* row = (World_Chunk_Row*)Vector_Get(chunks,i);
-		World_Chunk_Row_Free(w,row);
-	}
-	Vector_Free(chunks);
-
-	Vector_Set(&w->dims,(World_Dimension[]){ World_Dimension_New() },w->dim_in);
+	if(!dim) return;
+	World_Dimension_ClearChunks(w,dim);
 	World_UpdateChunks(w);
 }
 void World_UpdateChunks(World* w){
+	World_Dimension* dim = (World_Dimension*)Vector_Get(&w->dims,w->dim_in);
+	if(!dim) return;
 	if(World_Chunks_AreCurrent(w,w->t_origin_x,w->t_origin_y)){
 		w->origin_x = w->t_origin_x;
 		w->origin_y = w->t_origin_y;
@@ -1308,30 +1642,145 @@ void World_UpdateChunks(World* w){
 				existing->tags = Vector_Null();
 				existing->entities = PVector_Null();
 			}else{
-				chunk = World_Chunk_Load(w,w->path,chunk_x,chunk_y);
+				chunk = World_Chunk_Load(w,dim->path,chunk_x,chunk_y,dim->bg_tile);
 			}
 			Vector_Push(&row,&chunk);
 		}
 		Vector_Push(&next_chunks,&row);
 	}
 
-	World_Dimension* dim = (World_Dimension*)Vector_Get(&w->dims,w->dim_in);
 	Vector* chunks = &dim->chunks;
 
 	for(uint32_t row_index = 0;row_index < chunks->size;row_index++){
 		World_Chunk_Row* row = (World_Chunk_Row*)Vector_Get(chunks,row_index);
 		for(uint32_t chunk_index = 0;chunk_index < row->size;chunk_index++){
 			World_Chunk* ch = (World_Chunk*)Vector_Get(row,chunk_index);
-			if(!World_Chunks_Contain(&next_chunks,ch->x,ch->y))
-				World_Chunk_Save(ch,w,w->path);
+			if(!dim->deleted && !World_Chunks_Contain(&next_chunks,ch->x,ch->y))
+				World_Chunk_Save(ch,w,dim->path);
 		}
 		World_Chunk_Row_Free(w,row);
 	}
 	Vector_Free(chunks);
 
-	Vector_Set(&w->dims,(World_Dimension[]){ World_Dimension_Move(next_chunks) },w->dim_in);
+	dim->chunks = next_chunks;
 	w->origin_x = w->t_origin_x;
 	w->origin_y = w->t_origin_y;
+}
+char World_ChangeDimension(World* w,uint64_t id,char is_overworld,int32_t tx,int32_t ty,char* created){
+	World_Dimension* current = (World_Dimension*)Vector_Get(&w->dims,w->dim_in);
+	if(current && !current->deleted && current->id == id && current->is_overworld == is_overworld){
+		if(created) *created = 0;
+		return 1;
+	}
+
+	World_SaveChunks(w);
+	if(current){
+		World_Dimension_ClearChunks(w,current);
+		if(current->deleted)
+			World_Dimension_RemoveAt(w,w->dim_in);
+	}
+
+	CStr path;
+	Block bg_tile;
+	int32_t key_x = 0;
+	int32_t key_y = 0;
+	if(is_overworld){
+		path = CStr_Format("%s/Dimension_0",w->path);
+		bg_tile = BLOCK_GRAS;
+	}else{
+		World_Dimension_Key(id,&key_x,&key_y);
+		path = CStr_Format("%s/House_%d_%d",w->path,(Number)key_x,(Number)key_y);
+		bg_tile = BLOCK_SHADOW;
+	}
+
+	const char path_existed = Files_isDir(path);
+	w->dim_in = World_Dimension_Ensure(w,id,is_overworld,path,bg_tile,NULL);
+	CStr_Free(&path);
+	if(created) *created = !is_overworld && !path_existed;
+	current = (World_Dimension*)Vector_Get(&w->dims,w->dim_in);
+	if(!current) return 0;
+	Files_Mkdir(current->path);
+	current->bg_tile = bg_tile;
+
+	w->t_origin_x = (int32_t)floorf((float)tx / (float)WORLD_CHUNK_WIDTH);
+	w->t_origin_y = (int32_t)floorf((float)ty / (float)WORLD_CHUNK_HEIGHT);
+	w->origin_x = w->t_origin_x;
+	w->origin_y = w->t_origin_y;
+	World_UpdateChunks(w);
+	return 1;
+}
+void World_Dimension_Destroy(World* w,uint64_t id){
+	World_Portal_Overworld_Unlink(w,id);
+	int32_t x;
+	int32_t y;
+	World_Dimension_Key(id,&x,&y);
+	CStr path = CStr_Format("%s/House_%d_%d",w->path,(Number)x,(Number)y);
+	if(Files_isDir(path) && Files_Rmdir_R(path) != 0)
+		printf("[World_Dimension]: Destroy -> failed to remove '%s'\n",path);
+	CStr_Free(&path);
+
+	for(int i = (int)w->dims.size - 1;i>=0;i--){
+		World_Dimension* dim = (World_Dimension*)Vector_Get(&w->dims,i);
+		if(dim->id != id || dim->is_overworld) continue;
+		if((uint32_t)i == w->dim_in)
+			dim->deleted = 1;
+		else
+			World_Dimension_RemoveAt(w,(uint32_t)i);
+	}
+}
+void World_Portal_Overworld_Unlink(World* w,uint64_t id){
+	World_Dimension* overworld = NULL;
+	for(uint32_t i = 0U;i<w->dims.size;i++){
+		World_Dimension* dim = (World_Dimension*)Vector_Get(&w->dims,i);
+		if(dim->is_overworld){
+			overworld = dim;
+			break;
+		}
+	}
+	if(!overworld) return;
+
+	if(w->dim_in < w->dims.size &&
+	   ((World_Dimension*)Vector_Get(&w->dims,w->dim_in))->is_overworld){
+		for(uint32_t row_index = 0U;row_index<overworld->chunks.size;row_index++){
+			World_Chunk_Row* row = (World_Chunk_Row*)Vector_Get(&overworld->chunks,row_index);
+			for(uint32_t chunk_index = 0U;chunk_index<row->size;chunk_index++){
+				World_Chunk* ch = (World_Chunk*)Vector_Get(row,chunk_index);
+				for(int tag_index = ch->tags.size - 1;tag_index>=0;tag_index--){
+					World_Chunk_Tag* tag = (World_Chunk_Tag*)Vector_Get(&ch->tags,tag_index);
+					if(tag->type == WORLD_CHUNK_TAG_TYPE_PORTAL &&
+					   !tag->portal.is_overworld && tag->portal.dimension == id){
+						World_Chunk_Tag_Free(tag);
+						Vector_Remove(&ch->tags,tag_index);
+					}
+				}
+			}
+		}
+		return;
+	}
+
+	int32_t source_x;
+	int32_t source_y;
+	World_Dimension_Key(id,&source_x,&source_y);
+	const Vic2 first_chunk = World_GetChunkCoord(w,source_x,source_y);
+	const int32_t source_next_y = source_y < INT32_MAX ? source_y + 1 : source_y;
+	const Vic2 last_chunk = World_GetChunkCoord(w,source_x,source_next_y);
+	for(int32_t chunk_y = first_chunk.y;chunk_y<=last_chunk.y;chunk_y++){
+		CStr file = CStr_Format("%s/Chunk_%d_%d",overworld->path,(Number)first_chunk.x,(Number)chunk_y);
+		if(Files_Exists(file)){
+			World_Chunk ch = World_Chunk_Load(w,overworld->path,first_chunk.x,chunk_y,BLOCK_GRAS);
+			for(int tag_index = ch.tags.size - 1;tag_index>=0;tag_index--){
+				World_Chunk_Tag* tag = (World_Chunk_Tag*)Vector_Get(&ch.tags,tag_index);
+				if(tag->type == WORLD_CHUNK_TAG_TYPE_PORTAL &&
+				   !tag->portal.is_overworld && tag->portal.dimension == id){
+					World_Chunk_Tag_Free(tag);
+					Vector_Remove(&ch.tags,tag_index);
+				}
+			}
+			World_Chunk_Save(&ch,w,overworld->path);
+			World_Chunk_Free(w,&ch);
+		}
+		CStr_Free(&file);
+	}
 }
 
 char World_Entity_IsInside(World* w,int32_t ri,int32_t ci,World_Entity* e){
@@ -1373,6 +1822,7 @@ void World_Entity_Move(World* w,uint32_t ei,int32_t ri,int32_t ci){
 void World_Collision(World* w,World_Entity* src){
 	if(src){
 		if(w->mode!=ANIMATIONBG_DG){
+			const uint32_t collision_dim = w->dim_in;
 			EntityAtlas* ea = World_EntityAtlas_Get(w,src);
 			Vector rects = Vector_New(sizeof(TargetRect));
 			
@@ -1403,12 +1853,13 @@ void World_Collision(World* w,World_Entity* src){
 					Resolve_Rect_Rect_Side(&src->r,r->r,s);
 					if(ea->Collision)
 						ea->Collision(src,w,r->r.p.x,r->r.p.y,s);
+					if(w->dim_in != collision_dim) break;
 				}
 			}
 
 			Vector_Free(&rects);
 
-			if(ea->WorldCollision)
+			if(w->dim_in == collision_dim && ea->WorldCollision)
 				ea->WorldCollision(src,w);
 		}
 	}
@@ -1432,16 +1883,24 @@ void World_EntityCollision(World* w,World_Entity* src,int32_t ri,int32_t ci){
 				if(cindex < 0 || cindex >= row->size) continue;
 
 				World_Chunk* ch = (World_Chunk*)Vector_Get(row,cindex);
-				for(int32_t k = 0;k<ch->entities.size;k++) {
+				for(int32_t k = 0;k<ch->entities.size;) {
     			    World_Entity* e = (World_Entity*)PVector_Get(&ch->entities,k);
-					if(!e || src == e) continue;
+					if(!e || src == e){
+						k++;
+						continue;
+					}
 
 					EntityAtlas* ea = World_EntityAtlas_Get(w,src);
 					if(Overlap_Rect_Rect(src->r,e->r)){
 						Side s = Side_Rect_Rect(src->r,e->r);
+						const int32_t entity_count = ch->entities.size;
 
 						if(ea->EntityCollision)
 							ea->EntityCollision(src,w,e,e->r.p.x,e->r.p.y,s);
+						if(ch->entities.size == entity_count)
+							k++;
+					}else{
+						k++;
 					}
 				}
 			}

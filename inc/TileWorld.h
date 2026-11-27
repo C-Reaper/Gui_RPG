@@ -6,16 +6,19 @@
 
 #include "/home/codeleaded/System/Static/Library/AudioPlayer.h"
 
-#define TILE_COUNT_X	8U
-#define TILE_COUNT_Y	6U
-#define DOCK_TILE_COUNT_X	12U
-#define DOCK_TILE_COUNT_Y	5U
-#define HOUSE_TILE_COUNT_X	4U
-#define HOUSE_TILE_COUNT_Y	3U
-#define CEIL_FLAT_TILE_COUNT_X	3U
-#define CEIL_FLAT_TILE_COUNT_Y	2U
+#define TILE_COUNT_X				8U
+#define TILE_COUNT_Y				6U
+#define DOCK_TILE_COUNT_X			12U
+#define DOCK_TILE_COUNT_Y			5U
+#define HOUSE_TILE_COUNT_X			4U
+#define HOUSE_TILE_COUNT_Y			3U
+#define CEIL_FLAT_TILE_COUNT_X		3U
+#define CEIL_FLAT_TILE_COUNT_Y		2U
 #define CEIL_NORMAL_TILE_COUNT_X	5U
 #define CEIL_NORMAL_TILE_COUNT_Y	3U
+#define TILEWORLD_INVENTORY_SLOT_SCREEN_RATIO	0.112f
+#define TILEWORLD_INVENTORY_SLOT_GAP_RATIO	0.08f
+#define TILEWORLD_INVENTORY_PANEL_PAD_RATIO	0.14f
 
 // Neighbor bits are NW, N, NE, W, E, SW, S, SE; values are row-major atlas cell IDs.
 static const uint8_t TileWorld_TileLookup[256] = {
@@ -90,6 +93,8 @@ typedef struct TileWorld {
     TransformedView tv;
     AudioPlayer ap;
     Block selected;
+    Sprite item_frame;
+    Sprite wood_icon;
 } TileWorld;
 
 SubSprite TileWorld_Atlas_Cell_Get(Animation* a,unsigned int tile_x,unsigned int tile_y){
@@ -172,18 +177,15 @@ Block TileWorld_House_Family_Get(World* w,int32_t x,int32_t y){
 	}
 	return BLOCK_HOUSE_GRAY;
 }
-
 Animation* TileWorld_House_Animation_Get(World* w,Block family){
 	if(family != BLOCK_HOUSE_GRAY && family != BLOCK_HOUSE_RED)
 		return NULL;
 	return (Animation*)Vector_Get(&w->animations,(int)family);
 }
-
 int TileWorld_House_Neighbour_Is(World* w,Block family,int32_t x,int32_t y){
 	const Block b = World_Get(w,x,y);
 	return b == family || (b == BLOCK_DOOR && TileWorld_House_Family_Get(w,x,y) == family);
 }
-
 uint8_t TileWorld_House_Neighbours_Get(World* w,Block family,int32_t x,int32_t y){
 	const uint8_t north = (uint8_t)TileWorld_House_Neighbour_Is(w,family,x,y - 1);
 	const uint8_t east = (uint8_t)TileWorld_House_Neighbour_Is(w,family,x + 1,y);
@@ -265,14 +267,20 @@ SubSprite TileWorld_Chest_Get(Animation* a,World* w,int32_t x,int32_t y){
 	return SubSprite_New(&a->atlas_img,0U,0U,dx,dy);
 }
 
-TileWorld TileWorld_New(char* path_world,char* path_blocks,char* path_figures,char* path_objects){
+TileWorld TileWorld_New(char* path_world,char* path_blocks,char* path_figures,char* path_objects,char* path_items){
     TileWorld tw;
+	memset(&tw,0,sizeof(tw));
 	tw.player = Player_By((Vec2){ 0.0f,0.0f },ENTITY_ID_BLACKHAIR);
+	CStr item_frame_path = CStr_Concat(path_items,"Itemframe.png");
+	CStr wood_icon_path = CStr_Concat(path_items,"Wood.png");
+	tw.item_frame = Sprite_Load(item_frame_path);
+	tw.wood_icon = Sprite_Load(wood_icon_path);
+	CStr_Free(&item_frame_path);
+	CStr_Free(&wood_icon_path);
 
 	tw.tv = TransformedView_New((Vec2){ GetWidth(),GetHeight() });
 	TransformedView_Zoom(&tw.tv,(Vec2){ 0.05f,0.05f });
 	//TransformedView_Offset(&tv,(Vec2){ -0.5f,0.0f });
-	TransformedView_Focus(&tw.tv,&tw.player.e.r.p,tw.player.e.r.d);
 
 	tw.ap = AudioPlayer_New();
 	tw.world = World_Make(path_world,
@@ -288,6 +296,8 @@ TileWorld TileWorld_New(char* path_world,char* path_blocks,char* path_figures,ch
 		    Animation_Make_AtlasPath(path_blocks,"GreyHouse.png",HOUSE_TILE_COUNT_X,HOUSE_TILE_COUNT_Y,TileWorld_Door_Get),
 		    Animation_Make_AtlasPath(path_blocks,"CeilFlat.png",CEIL_FLAT_TILE_COUNT_X,CEIL_FLAT_TILE_COUNT_Y,TileWorld_Ceil_Flat_Get),
 		    Animation_Make_AtlasPath(path_blocks,"CeilNormal.png",CEIL_NORMAL_TILE_COUNT_X,CEIL_NORMAL_TILE_COUNT_Y,TileWorld_Ceil_Normal_Get),
+		    Animation_Make_SpritePath(path_blocks,"Plank_Shadow.png"),
+		    Animation_Make_SpritePath(path_blocks,"Plank.png"),
 		    Animation_Null()
 	    },
         (EntityAtlas[]){
@@ -323,12 +333,29 @@ TileWorld TileWorld_New(char* path_world,char* path_blocks,char* path_figures,ch
 				(void*(*)(DataStream*))Tree_Load,
 				(void(*)(void*,DataStream*))Tree_Save
 			),
+		    EntityAtlas_Make(
+				path_items,
+				"Wood.png",
+				1,1,
+				WOOD_ITEM_DIM_X,WOOD_ITEM_DIM_Y,
+				NULL,
+				NULL,
+				(SubSprite(*)(void*,EntityAtlas*))World_Item_Entity_GetRender,
+				NULL,
+				NULL,
+				NULL,
+				NULL,
+				NULL,
+				(void*(*)(DataStream*))World_Item_Entity_Load,
+				(void(*)(void*,DataStream*))World_Item_Entity_Save
+			),
 		    EntityAtlas_Null()
 	    }
     );
 
 	tw.selected = BLOCK_NONE;
     tw.player.e.r.p = tw.world.spawn;
+	Player_LoadInventoryFile(&tw.player,&tw.world);
     return tw;
 }
 void TileWorld_AudioPlayerStart(TileWorld* tw){
@@ -377,6 +404,262 @@ void TileWorld_RenderEntityPreview(Pixel* out,unsigned int width,unsigned int he
 		}
 	}
 }
+void TileWorld_Inventory_RenderCount(Pixel* out,unsigned int width,unsigned int height,uint32_t count,float x,float y,float slot_size){
+	AlxFont* font = GetAlxFont();
+	if(!font || !font->Atlas.img || font->Columns <= 0 || font->Rows <= 0 ||
+	   font->CharSizeX <= 0 || font->CharSizeY <= 0)
+		return;
+
+	char text[16];
+	snprintf(text,sizeof(text),"%u",count);
+	const float glyph_width = slot_size * 0.22f;
+	const float glyph_height = slot_size * 0.30f;
+	const float pad = slot_size * 0.04f;
+	const float start_x = x + slot_size - pad - (float)strlen(text) * glyph_width;
+	const float start_y = y + slot_size - glyph_height - pad;
+	for(unsigned int i = 0U;text[i] != '\0';i++){
+		const unsigned int character = (unsigned int)(unsigned char)text[i];
+		const unsigned int column = character % (unsigned int)font->Columns;
+		const unsigned int row = character / (unsigned int)font->Rows;
+		SubSprite glyph = SubSprite_New(
+			&font->Atlas,
+			column * (unsigned int)font->CharSizeX,
+			row * (unsigned int)font->CharSizeY,
+			(unsigned int)font->CharSizeX,
+			(unsigned int)font->CharSizeY
+		);
+		TileWorld_RenderEntityPreview(out,width,height,glyph,start_x + i * glyph_width,start_y,glyph_width,glyph_height);
+	}
+}
+World_Inventory* TileWorld_Inventory_Chest_Get(TileWorld* tw){
+	if(!tw->world.inventory_has_chest) return NULL;
+	World_Inventory* inventory = World_Chest_Inventory_Get(&tw->world,tw->world.inventory_chest_x,tw->world.inventory_chest_y);
+	const float dx = (float)tw->world.inventory_chest_x + 0.5f - tw->player.e.r.p.x;
+	const float dy = (float)tw->world.inventory_chest_y + 0.5f - tw->player.e.r.p.y;
+	if(!inventory || dx * dx + dy * dy > 2.25f){
+		tw->world.inventory_has_chest = 0U;
+		tw->world.inventory_scroll_chest = 0U;
+		return NULL;
+	}
+	return inventory;
+}
+void TileWorld_Inventory_Toggle(TileWorld* tw){
+	if(tw->world.inventory){
+		tw->world.inventory = 0U;
+		tw->world.inventory_has_chest = 0U;
+		return;
+	}
+
+	tw->world.inventory = 1U;
+	tw->world.inventory_scroll_player = 0U;
+	tw->world.inventory_scroll_chest = 0U;
+	tw->world.inventory_has_chest = 0U;
+
+	const int32_t player_x = (int32_t)floorf(tw->player.e.r.p.x);
+	const int32_t player_y = (int32_t)floorf(tw->player.e.r.p.y);
+	float nearest_distance = 2.25f;
+	for(int32_t y = player_y - 2;y<=player_y + 2;y++){
+		for(int32_t x = player_x - 2;x<=player_x + 2;x++){
+			if(!World_Chest_Inventory_Get(&tw->world,x,y)) continue;
+			const float dx = (float)x + 0.5f - tw->player.e.r.p.x;
+			const float dy = (float)y + 0.5f - tw->player.e.r.p.y;
+			const float distance = dx * dx + dy * dy;
+			if(distance <= nearest_distance){
+				nearest_distance = distance;
+				tw->world.inventory_chest_x = x;
+				tw->world.inventory_chest_y = y;
+				tw->world.inventory_has_chest = 1U;
+			}
+		}
+	}
+}
+uint32_t TileWorld_Inventory_LayoutColumns(TileWorld* tw){
+	uint32_t columns = tw->player.inventory.width;
+	if(columns < PLAYER_INVENTORY_WIDTH) columns = PLAYER_INVENTORY_WIDTH;
+	if(tw->world.inventory_has_chest){
+		World_Inventory* chest = TileWorld_Inventory_Chest_Get(tw);
+		if(chest && columns < chest->width) columns = chest->width;
+	}
+	return columns;
+}
+float TileWorld_Inventory_SlotSize(unsigned int width,unsigned int height,uint32_t columns){
+	if(width == 0U || height == 0U) return 0.0f;
+	if(columns == 0U) columns = PLAYER_INVENTORY_WIDTH;
+
+	const float desired_size = (float)(width < height ? width : height) * TILEWORLD_INVENTORY_SLOT_SCREEN_RATIO;
+	const float margin = fminf((float)width * 0.02f,16.0f);
+	const float available_width = F32_Max(1.0f,(float)width - 2.0f * margin);
+	const float max_columns = (float)columns + ((float)columns - 1.0f) * TILEWORLD_INVENTORY_SLOT_GAP_RATIO;
+	return F32_Max(1.0f,F32_Min(desired_size,available_width / max_columns));
+}
+float TileWorld_Inventory_PanelPad(float slot_size){
+	return F32_Max(4.0f,slot_size * TILEWORLD_INVENTORY_PANEL_PAD_RATIO);
+}
+float TileWorld_Inventory_TitleHeight(void){
+	AlxFont* font = GetAlxFont();
+	return font && font->CharSizeY > 0 ? (float)font->CharSizeY : 0.0f;
+}
+uint32_t TileWorld_Inventory_VisibleRows(unsigned int width,unsigned int height,uint32_t columns){
+	const float panel_height = (float)(height / 2U);
+	const float slot_size = TileWorld_Inventory_SlotSize(width,height,columns);
+	if(slot_size <= 0.0f) return 0U;
+	const float gap = slot_size * TILEWORLD_INVENTORY_SLOT_GAP_RATIO;
+	const float pad = TileWorld_Inventory_PanelPad(slot_size);
+	const float reserved = 2.0f * pad + TileWorld_Inventory_TitleHeight();
+	if(panel_height <= reserved) return 0U;
+	return (uint32_t)floorf((panel_height - reserved + gap) / (slot_size + gap));
+}
+uint32_t TileWorld_Inventory_RowCount(World_Inventory* inventory){
+	if(!inventory || inventory->width == 0U) return 0U;
+	return inventory->size / inventory->width + (inventory->size % inventory->width != 0U);
+}
+uint32_t TileWorld_Inventory_MaxScroll(World_Inventory* inventory,unsigned int width,unsigned int height,uint32_t columns){
+	const uint32_t rows = TileWorld_Inventory_RowCount(inventory);
+	const uint32_t visible_rows = TileWorld_Inventory_VisibleRows(width,height,columns);
+	return rows > visible_rows ? rows - visible_rows : 0U;
+}
+void TileWorld_Inventory_Scroll(TileWorld* tw,int direction,unsigned int mouse_y,unsigned int width,unsigned int height){
+	if(!tw->world.inventory || direction == 0) return;
+	if(!tw->world.inventory_has_chest && mouse_y >= height / 2U) return;
+	World_Inventory* inventory = &tw->player.inventory;
+	uint32_t* scroll = &tw->world.inventory_scroll_player;
+	if(tw->world.inventory_has_chest && mouse_y >= height / 2U){
+		inventory = TileWorld_Inventory_Chest_Get(tw);
+		scroll = &tw->world.inventory_scroll_chest;
+	}
+	if(!inventory) return;
+
+	const uint32_t columns = TileWorld_Inventory_LayoutColumns(tw);
+	const uint32_t max_scroll = TileWorld_Inventory_MaxScroll(inventory,width,height,columns);
+	if(direction < 0 && *scroll > 0U)
+		(*scroll)--;
+	else if(direction > 0 && *scroll < max_scroll)
+		(*scroll)++;
+}
+void TileWorld_Inventory_SlotPosition(World_Inventory* inventory,unsigned int width,unsigned int height,uint32_t layout_columns,unsigned int panel,unsigned int row,unsigned int column,float* x,float* y,float* slot_size){
+	const unsigned int panel_top = panel ? height / 2U : 0U;
+	const float size = TileWorld_Inventory_SlotSize(width,height,layout_columns);
+	const float gap = size * TILEWORLD_INVENTORY_SLOT_GAP_RATIO;
+	const float pad = TileWorld_Inventory_PanelPad(size);
+	const float pitch = size + gap;
+	const float grid_width = inventory->width * size + (inventory->width - 1U) * gap;
+	const float left = grid_width <= width ? ((float)width - grid_width) * 0.5f : 0.0f;
+	if(x) *x = left + column * pitch;
+	if(y) *y = (float)panel_top + 2.0f * pad + TileWorld_Inventory_TitleHeight() + row * pitch;
+	if(slot_size) *slot_size = size;
+}
+void TileWorld_Inventory_RenderScrollbar(Pixel* out,unsigned int width,unsigned int height,World_Inventory* inventory,uint32_t scroll,unsigned int panel,uint32_t layout_columns,uint32_t visible_rows,float slot_size){
+	const uint32_t rows = TileWorld_Inventory_RowCount(inventory);
+	if(!out || visible_rows == 0U || rows <= visible_rows) return;
+
+	float grid_x;
+	float track_y;
+	TileWorld_Inventory_SlotPosition(inventory,width,height,layout_columns,panel,0U,0U,&grid_x,&track_y,NULL);
+	const float gap = slot_size * TILEWORLD_INVENTORY_SLOT_GAP_RATIO;
+	const float pitch = slot_size + gap;
+	const float grid_width = inventory->width * slot_size + (inventory->width - 1U) * gap;
+	const float bar_width = F32_Max(5.0f,slot_size * 0.08f);
+	const float bar_gap = F32_Max(3.0f,slot_size * 0.04f);
+	const float track_x = grid_x + grid_width + bar_gap;
+	const float track_height = visible_rows * pitch - gap;
+	if(track_height <= 0.0f || track_x + bar_width > (float)width) return;
+
+	const float thumb_height = F32_Min(track_height,F32_Max(bar_width * 2.0f,track_height * (float)visible_rows / (float)rows));
+	const float thumb_travel = track_height - thumb_height;
+	const uint32_t max_scroll = rows - visible_rows;
+	const float scroll_ratio = max_scroll ? (float)scroll / (float)max_scroll : 0.0f;
+	const float thumb_y = track_y + thumb_travel * scroll_ratio;
+
+	Rect_RenderXXAlpha(out,(int)width,(int)height,track_x,track_y,bar_width,track_height,Pixel_RGBA(35U,35U,35U,210U));
+	Rect_RenderXX(out,(int)width,(int)height,track_x,thumb_y,bar_width,thumb_height,Pixel_RGBA(230U,230U,230U,255U));
+}
+void TileWorld_Inventory_ClickPanel(TileWorld* tw,World_Inventory* inventory,uint32_t* scroll,unsigned int panel,unsigned int mx,unsigned int my,unsigned int width,unsigned int height,uint32_t layout_columns,char right_click){
+	if(!inventory || !scroll || inventory->width == 0U) return;
+	const uint32_t visible_rows = TileWorld_Inventory_VisibleRows(width,height,layout_columns);
+	const uint32_t max_scroll = TileWorld_Inventory_MaxScroll(inventory,width,height,layout_columns);
+	if(*scroll > max_scroll) *scroll = max_scroll;
+
+	for(uint32_t row = 0U;row<visible_rows;row++){
+		for(uint32_t column = 0U;column<inventory->width;column++){
+			const uint32_t index = (*scroll + row) * inventory->width + column;
+			if(index >= inventory->size) continue;
+
+			float x;
+			float y;
+			float slot_size;
+			TileWorld_Inventory_SlotPosition(inventory,width,height,layout_columns,panel,row,column,&x,&y,&slot_size);
+			if(x < 0.0f || x + slot_size > width) continue;
+			if((float)mx >= x && (float)mx < x + slot_size &&
+			   (float)my >= y && (float)my < y + slot_size){
+				if(right_click)
+					World_Inventory_RightClick(inventory,index,&tw->player.hand);
+				else
+					World_Inventory_LeftClick(inventory,index,&tw->player.hand);
+			}
+		}
+	}
+}
+void TileWorld_Inventory_ClickButton(TileWorld* tw,unsigned int mx,unsigned int my,unsigned int width,unsigned int height,char right_click){
+	if(!tw->world.inventory) return;
+	const uint32_t columns = TileWorld_Inventory_LayoutColumns(tw);
+	if(my < height / 2U){
+		TileWorld_Inventory_ClickPanel(tw,&tw->player.inventory,&tw->world.inventory_scroll_player,0U,mx,my,width,height,columns,right_click);
+	}else if(tw->world.inventory_has_chest){
+		World_Inventory* chest = TileWorld_Inventory_Chest_Get(tw);
+		TileWorld_Inventory_ClickPanel(tw,chest,&tw->world.inventory_scroll_chest,1U,mx,my,width,height,columns,right_click);
+	}
+}
+void TileWorld_Inventory_Click(TileWorld* tw,unsigned int mx,unsigned int my,unsigned int width,unsigned int height){
+	TileWorld_Inventory_ClickButton(tw,mx,my,width,height,0);
+}
+void TileWorld_Inventory_ClickRight(TileWorld* tw,unsigned int mx,unsigned int my,unsigned int width,unsigned int height){
+	TileWorld_Inventory_ClickButton(tw,mx,my,width,height,1);
+}
+void TileWorld_Inventory_RenderStack(TileWorld* tw,Pixel* out,unsigned int width,unsigned int height,World_Item_Stack* stack,float x,float y,float slot_size){
+	if(!stack || stack->id == ITEM_NONE) return;
+	if(stack->id == ITEM_WOOD && tw->wood_icon.img)
+		TileWorld_RenderEntityPreview(out,width,height,SubSprite_New(&tw->wood_icon,0U,0U,tw->wood_icon.w,tw->wood_icon.h),x,y,slot_size,slot_size);
+	if(World_Item_MaxStack(stack->id) > 1U && stack->count > 1U)
+		TileWorld_Inventory_RenderCount(out,width,height,stack->count,x,y,slot_size);
+}
+void TileWorld_Inventory_RenderPanel(TileWorld* tw,Pixel* out,unsigned int width,unsigned int height,World_Inventory* inventory,uint32_t* scroll,unsigned int panel,char* label,uint32_t layout_columns){
+	if(!inventory || !scroll || inventory->width == 0U || !tw->item_frame.img) return;
+	const uint32_t visible_rows = TileWorld_Inventory_VisibleRows(width,height,layout_columns);
+	const uint32_t max_scroll = TileWorld_Inventory_MaxScroll(inventory,width,height,layout_columns);
+	if(*scroll > max_scroll) *scroll = max_scroll;
+	const unsigned int panel_top = panel ? height / 2U : 0U;
+	const float size = TileWorld_Inventory_SlotSize(width,height,layout_columns);
+	const float pad = TileWorld_Inventory_PanelPad(size);
+	CStr_RenderAlxFontf(out,width,height,GetAlxFont(),pad,(float)panel_top + pad,WHITE,"%s",label);
+
+	for(uint32_t row = 0U;row<visible_rows;row++){
+		for(uint32_t column = 0U;column<inventory->width;column++){
+			const uint32_t index = (*scroll + row) * inventory->width + column;
+			if(index >= inventory->size) continue;
+
+			float x;
+			float y;
+			float slot_size;
+			TileWorld_Inventory_SlotPosition(inventory,width,height,layout_columns,panel,row,column,&x,&y,&slot_size);
+			if(x < 0.0f || x + slot_size > width) continue;
+			TileWorld_RenderEntityPreview(out,width,height,SubSprite_New(&tw->item_frame,0U,0U,tw->item_frame.w,tw->item_frame.h),x,y,slot_size,slot_size);
+			TileWorld_Inventory_RenderStack(tw,out,width,height,&inventory->slots[index],x,y,slot_size);
+		}
+	}
+	TileWorld_Inventory_RenderScrollbar(out,width,height,inventory,*scroll,panel,layout_columns,visible_rows,size);
+}
+void TileWorld_Inventory_Render(TileWorld* tw,Pixel* out,unsigned int width,unsigned int height,unsigned int mx,unsigned int my){
+	if(!tw->world.inventory) return;
+	Rect_RenderXXAlpha(out,(int)width,(int)height,0.0f,0.0f,(float)width,(float)height,Pixel_RGBA(0U,0U,0U,128U));
+	const uint32_t columns = TileWorld_Inventory_LayoutColumns(tw);
+	TileWorld_Inventory_RenderPanel(tw,out,width,height,&tw->player.inventory,&tw->world.inventory_scroll_player,0U,"Inventory (E to close)",columns);
+	if(tw->world.inventory_has_chest){
+		World_Inventory* chest = TileWorld_Inventory_Chest_Get(tw);
+		TileWorld_Inventory_RenderPanel(tw,out,width,height,chest,&tw->world.inventory_scroll_chest,1U,"Chest",columns);
+	}
+	const float slot_size = TileWorld_Inventory_SlotSize(width,height,columns);
+	TileWorld_Inventory_RenderStack(tw,out,width,height,&tw->player.hand,(float)mx - slot_size * 0.5f,(float)my - slot_size * 0.5f,slot_size);
+}
 void TileWorld_RenderDbg(TileWorld* tw,Pixel* out,unsigned int width,unsigned int height,unsigned int mx,unsigned int my){
 	if(tw->world.mode == ANIMATIONBG_DG){
 		const Vec2 wpos = TransformedView_ScreenWorldPos(&tw->tv,(Vec2){ mx,my });
@@ -419,8 +702,11 @@ void TileWorld_RenderDbg(TileWorld* tw,Pixel* out,unsigned int width,unsigned in
 	}
 }
 void TileWorld_Free(TileWorld* tw){
+	Player_SaveInventoryFile(&tw->player,&tw->world);
     World_Free(&tw->world);
     Player_Free(&tw->player);
+	Sprite_Free(&tw->item_frame);
+	Sprite_Free(&tw->wood_icon);
     AudioPlayer_Free(&tw->ap);
 }
 

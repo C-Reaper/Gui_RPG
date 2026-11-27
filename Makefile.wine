@@ -27,7 +27,7 @@ debug:
 	WINEPREFIX=~/wine64 WINEARCH=win64 winedbg $(TARGET)
 
 exe: $(TARGET)
-	WINEPREFIX=~/wine64 WINEARCH=win64 wine $(TARGET)
+	WINEPREFIX="$(HOME)/wine64-test" wine ./build/Main.exe
 
 clean:
 	rm -rf $(BUILD_DIR)/*

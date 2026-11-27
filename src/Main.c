@@ -25,32 +25,50 @@ TileWorld world;
 void Setup(AlxWindow* w){
 	AlxFont_Resize(&window.font,32,32);
 	
-	world = TileWorld_New("./assets/World/","./assets/Tiles/","./assets/Figures/","./assets/Objects/");
+	world = TileWorld_New("./assets/World/","./assets/Tiles/","./assets/Figures/","./assets/Objects/","./assets/Items/");
+	TransformedView_Focus(&world.tv,&world.player.e.r.p,world.player.e.r.d);
 	//TileWorld_AudioPlayerStart(&world);
 }
 void Update(AlxWindow* w){
 	TransformedView_Output(&world.tv,(Vec2){ GetWidth(),GetHeight() });
-	TransformedView_HandlePanZoom(&world.tv,window.Strokes,GetMouse());
+	if(!world.world.inventory)
+		TransformedView_HandlePanZoom(&world.tv,window.Strokes,GetMouse());
 	TransformedView_Focus(&world.tv,&world.player.e.r.p,world.player.e.r.d);
 
-	if(Stroke(ALX_KEY_Q).PRESSED){
-		world.world.mode = world.world.mode == ANIMATIONBG_DG ? ANIMATIONBG_ALL : ANIMATIONBG_DG;
+	if(Stroke(ALX_KEY_E).PRESSED &&
+	   (world.world.inventory || world.world.portal_exit_timer <= 0.0f))
+		TileWorld_Inventory_Toggle(&world);
+	if(!world.world.inventory){
+		if(Stroke(ALX_KEY_Q).PRESSED){
+			world.world.mode = world.world.mode == ANIMATIONBG_DG ? ANIMATIONBG_ALL : ANIMATIONBG_DG;
+		}
+		if(Stroke(ALX_KEY_TAB).PRESSED){
+			world.world.settype = !world.world.settype;
+		}
+		if(Stroke(ALX_KEY_CAPSLOCK).PRESSED){
+			world.world.fill = !world.world.fill;
+		}
+
+		if(Stroke(ALX_KEY_1).PRESSED){
+			world.selected--;
+		}
+		if(Stroke(ALX_KEY_2).PRESSED){
+			world.selected++;
+		}
 	}
-	if(Stroke(ALX_KEY_TAB).PRESSED){
-		world.world.settype = !world.world.settype;
-	}
-	if(Stroke(ALX_KEY_CAPSLOCK).PRESSED){
-		world.world.fill = !world.world.fill;
+	if(world.world.inventory){
+		const int scroll_direction = Stroke(ALX_MOUSE_S_UP).PRESSED ? -1 : (Stroke(ALX_MOUSE_S_DOWN).PRESSED ? 1 : 0);
+		TileWorld_Inventory_Scroll(&world,scroll_direction,(unsigned int)w->MouseY,(unsigned int)GetWidth(),(unsigned int)GetHeight());
+		if(Stroke(ALX_MOUSE_L).PRESSED)
+			TileWorld_Inventory_Click(&world,(unsigned int)w->MouseX,(unsigned int)w->MouseY,(unsigned int)GetWidth(),(unsigned int)GetHeight());
+		else if(Stroke(ALX_MOUSE_R).PRESSED)
+			TileWorld_Inventory_ClickRight(&world,(unsigned int)w->MouseX,(unsigned int)w->MouseY,(unsigned int)GetWidth(),(unsigned int)GetHeight());
 	}
 
-	if(Stroke(ALX_KEY_1).PRESSED){
-		world.selected--;
-	}
-	if(Stroke(ALX_KEY_2).PRESSED){
-		world.selected++;
-	}
-
-	if(world.world.mode != ANIMATIONBG_DG){
+	if(world.world.inventory){
+		world.player.e.v = (Vec2){ 0.0f,0.0f };
+		world.player.e.a = (Vec2){ 0.0f,0.0f };
+	}else if(world.world.mode != ANIMATIONBG_DG){
 		const float dir_x = Stroke(ALX_KEY_A).DOWN ? -1.0f : (Stroke(ALX_KEY_D).DOWN ? 1.0f : 0.0f);
 		const float dir_y = Stroke(ALX_KEY_W).DOWN ? -1.0f : (Stroke(ALX_KEY_S).DOWN ? 1.0f : 0.0f);
 		Player_Move(&world.player,dir_x,dir_y);
@@ -111,9 +129,10 @@ void Update(AlxWindow* w){
 	
 	World_Render(&world.world,&world.tv,WINDOW_STD_ARGS);
 	TileWorld_RenderDbg(&world,WINDOW_STD_ARGS,GetMouse().x,GetMouse().y);
+	TileWorld_Inventory_Render(&world,WINDOW_STD_ARGS,(unsigned int)w->MouseX,(unsigned int)w->MouseY);
 
-	CStr_RenderAlxFontf(WINDOW_STD_ARGS,&window.font,0.0f,0.0f,WHITE,"Q: DBG");
-	CStr_RenderAlxFontf(WINDOW_STD_ARGS,&window.font,0.0f,GetAlxFont()->CharSizeY,WHITE,"%s | %s",world.world.mode == ANIMATIONBG_DG ? "Debug" : "None",world.world.fill ? "Fill" : "Put");
+	CStr_RenderAlxFontf(WINDOW_STD_ARGS,&window.font,0.0f,GetHeight() - 1 * GetAlxFont()->CharSizeY,WHITE,"Q: DBG");
+	CStr_RenderAlxFontf(WINDOW_STD_ARGS,&window.font,0.0f,GetHeight() - 2 * GetAlxFont()->CharSizeY,WHITE,"%s | %s",world.world.mode == ANIMATIONBG_DG ? "Debug" : "None",world.world.fill ? "Fill" : "Put");
 }
 void Delete(AlxWindow* w){
 	TileWorld_Free(&world);
