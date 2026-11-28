@@ -14,7 +14,7 @@
 *.bak
 *.swp
 
-assets/Dimensions/
+assets/Dimensions/*
 .vscode/
 *.log
 *.DS_Store
