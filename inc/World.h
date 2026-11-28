@@ -31,11 +31,216 @@
 #define BLOCK_BORDER						0xFFFFFFFFU
 typedef uint32_t Block;
 
-#define ITEM_NONE							0U
-#define ITEM_WOOD							1U
+typedef enum Item_ID {
+	ITEM_NONE = 0U,
+	ITEM_HOLZ = 1U,
+	ITEM_AERE = 2U,
+	ITEM_ANANAS = 3U,
+	ITEM_BESTECK = 4U,
+	ITEM_BEUTEL = 5U,
+	ITEM_BIENE = 6U,
+	ITEM_BIERKRUG = 7U,
+	ITEM_BIRNE = 8U,
+	ITEM_BLAETTER = 9U,
+	ITEM_BLATT = 10U,
+	ITEM_BLUETE = 11U,
+	ITEM_BOHNEN_BLAU = 12U,
+	ITEM_BOHNEN_ROT = 13U,
+	ITEM_BONBON = 14U,
+	ITEM_BREZE = 15U,
+	ITEM_BRIEF = 16U,
+	ITEM_BRILLE = 17U,
+	ITEM_BROT = 18U,
+	ITEM_BUERSTE = 19U,
+	ITEM_CHILI = 20U,
+	ITEM_EI = 21U,
+	ITEM_EIMER = 22U,
+	ITEM_ERDBEERE = 23U,
+	ITEM_FADEN = 24U,
+	ITEM_FALLE = 25U,
+	ITEM_FARBE = 26U,
+	ITEM_FARN = 27U,
+	ITEM_FASS = 28U,
+	ITEM_FISCH = 29U,
+	ITEM_FLASCHE = 30U,
+	ITEM_FLASCHE_LEER = 31U,
+	ITEM_FLEISCHKEULE = 32U,
+	ITEM_FLEISCHKNOCHEN = 33U,
+	ITEM_FLOETE = 34U,
+	ITEM_GABEL = 35U,
+	ITEM_GEMAELDE = 36U,
+	ITEM_GLAS = 37U,
+	ITEM_GLOCKE = 38U,
+	ITEM_GOCKEL = 39U,
+	ITEM_GOLDENWEIZEN = 40U,
+	ITEM_HAMSTER = 41U,
+	ITEM_HANTEL = 42U,
+	ITEM_HUFEISEN = 43U,
+	ITEM_HUHN = 44U,
+	ITEM_INSTRUMENT = 45U,
+	ITEM_KAESE = 46U,
+	ITEM_KAROTTE = 47U,
+	ITEM_KARTEN = 48U,
+	ITEM_KELLE = 49U,
+	ITEM_KERZE = 50U,
+	ITEM_KIRSCHE = 51U,
+	ITEM_KLEE = 52U,
+	ITEM_KLEIDERBUEGEL = 53U,
+	ITEM_KLOPAPIER = 54U,
+	ITEM_KNOBLAUCH = 55U,
+	ITEM_KOKUSNUSS = 56U,
+	ITEM_KREUZ = 57U,
+	ITEM_KRUG = 58U,
+	ITEM_KUCHEN = 59U,
+	ITEM_KUERBIS = 60U,
+	ITEM_LOLLI = 61U,
+	ITEM_LUPE = 62U,
+	ITEM_MAIS = 63U,
+	ITEM_MARMELADE = 64U,
+	ITEM_MAUS = 65U,
+	ITEM_MEHL = 66U,
+	ITEM_MESSER = 67U,
+	ITEM_OBERSCHIENE = 68U,
+	ITEM_PFANNE = 69U,
+	ITEM_PINSEL = 70U,
+	ITEM_ROSE = 71U,
+	ITEM_RUEBE = 72U,
+	ITEM_SACK = 73U,
+	ITEM_SAEGE = 74U,
+	ITEM_SALAT = 75U,
+	ITEM_SAMEN = 76U,
+	ITEM_SCHRIFTROLLE = 77U,
+	ITEM_SCHWAMM = 78U,
+	ITEM_SEIL = 79U,
+	ITEM_SENSE = 80U,
+	ITEM_SICHEL = 81U,
+	ITEM_STATUE = 82U,
+	ITEM_STEAK = 83U,
+	ITEM_STEIN = 84U,
+	ITEM_TASCHENUHR = 85U,
+	ITEM_TOMATE = 86U,
+	ITEM_TOPF = 87U,
+	ITEM_TRAUBE = 88U,
+	ITEM_TROMMEL = 89U,
+	ITEM_TROMPETE = 90U,
+	ITEM_TUCH = 91U,
+	ITEM_VIOLINE = 92U,
+	ITEM_VOGELKAEFIG = 93U,
+	ITEM_WAABE = 94U,
+	ITEM_WEIN = 95U,
+	ITEM_WEIZEN = 96U,
+	ITEM_WERKZEUG = 97U,
+	ITEM_WUERSTE = 98U,
+	ITEM_WURST = 99U,
+	ITEM_ZWIEBEL = 100U,
+	ITEM_COUNT = 101U
+} Item_ID;
 typedef uint32_t Item;
 
-#define WORLD_ITEM_WOOD_MAX_STACK			64U
+static char* const WORLD_ITEM_FILES[ITEM_COUNT] = {
+	[ITEM_HOLZ] = "Holz.png",
+	[ITEM_AERE] = "Aere.png",
+	[ITEM_ANANAS] = "Ananas.png",
+	[ITEM_BESTECK] = "Besteck.png",
+	[ITEM_BEUTEL] = "Beutel.png",
+	[ITEM_BIENE] = "Biene.png",
+	[ITEM_BIERKRUG] = "Bierkrug.png",
+	[ITEM_BIRNE] = "Birne.png",
+	[ITEM_BLAETTER] = "Blaetter.png",
+	[ITEM_BLATT] = "Blatt.png",
+	[ITEM_BLUETE] = "Bluete.png",
+	[ITEM_BOHNEN_BLAU] = "Bohnen_blau.png",
+	[ITEM_BOHNEN_ROT] = "Bohnen_rot.png",
+	[ITEM_BONBON] = "Bonbon.png",
+	[ITEM_BREZE] = "Breze.png",
+	[ITEM_BRIEF] = "Brief.png",
+	[ITEM_BRILLE] = "Brille.png",
+	[ITEM_BROT] = "Brot.png",
+	[ITEM_BUERSTE] = "Buerste.png",
+	[ITEM_CHILI] = "Chili.png",
+	[ITEM_EI] = "Ei.png",
+	[ITEM_EIMER] = "Eimer.png",
+	[ITEM_ERDBEERE] = "Erdbeere.png",
+	[ITEM_FADEN] = "Faden.png",
+	[ITEM_FALLE] = "Falle.png",
+	[ITEM_FARBE] = "Farbe.png",
+	[ITEM_FARN] = "Farn.png",
+	[ITEM_FASS] = "Fass.png",
+	[ITEM_FISCH] = "Fisch.png",
+	[ITEM_FLASCHE] = "Flasche.png",
+	[ITEM_FLASCHE_LEER] = "Flasche_leer.png",
+	[ITEM_FLEISCHKEULE] = "Fleischkeule.png",
+	[ITEM_FLEISCHKNOCHEN] = "Fleischknochen.png",
+	[ITEM_FLOETE] = "Floete.png",
+	[ITEM_GABEL] = "Gabel.png",
+	[ITEM_GEMAELDE] = "Gemälde.png",
+	[ITEM_GLAS] = "Glas.png",
+	[ITEM_GLOCKE] = "Glocke.png",
+	[ITEM_GOCKEL] = "Gockel.png",
+	[ITEM_GOLDENWEIZEN] = "Goldenweizen.png",
+	[ITEM_HAMSTER] = "Hamster.png",
+	[ITEM_HANTEL] = "Hantel.png",
+	[ITEM_HUFEISEN] = "Hufeisen.png",
+	[ITEM_HUHN] = "Huhn.png",
+	[ITEM_INSTRUMENT] = "Instrument.png",
+	[ITEM_KAESE] = "Kaese.png",
+	[ITEM_KAROTTE] = "Karotte.png",
+	[ITEM_KARTEN] = "Karten.png",
+	[ITEM_KELLE] = "Kelle.png",
+	[ITEM_KERZE] = "Kerze.png",
+	[ITEM_KIRSCHE] = "Kirsche.png",
+	[ITEM_KLEE] = "Klee.png",
+	[ITEM_KLEIDERBUEGEL] = "Kleiderbuegel.png",
+	[ITEM_KLOPAPIER] = "Klopapier.png",
+	[ITEM_KNOBLAUCH] = "Knoblauch.png",
+	[ITEM_KOKUSNUSS] = "Kokusnuss.png",
+	[ITEM_KREUZ] = "Kreuz.png",
+	[ITEM_KRUG] = "Krug.png",
+	[ITEM_KUCHEN] = "Kuchen.png",
+	[ITEM_KUERBIS] = "Kuerbis.png",
+	[ITEM_LOLLI] = "Lolli.png",
+	[ITEM_LUPE] = "Lupe.png",
+	[ITEM_MAIS] = "Mais.png",
+	[ITEM_MARMELADE] = "Marmelade.png",
+	[ITEM_MAUS] = "Maus.png",
+	[ITEM_MEHL] = "Mehl.png",
+	[ITEM_MESSER] = "Messer.png",
+	[ITEM_OBERSCHIENE] = "Oberschiene.png",
+	[ITEM_PFANNE] = "Pfanne.png",
+	[ITEM_PINSEL] = "Pinsel.png",
+	[ITEM_ROSE] = "Rose.png",
+	[ITEM_RUEBE] = "Ruebe.png",
+	[ITEM_SACK] = "Sack.png",
+	[ITEM_SAEGE] = "Saege.png",
+	[ITEM_SALAT] = "Salat.png",
+	[ITEM_SAMEN] = "Samen.png",
+	[ITEM_SCHRIFTROLLE] = "Schriftrolle.png",
+	[ITEM_SCHWAMM] = "Schwamm.png",
+	[ITEM_SEIL] = "Seil.png",
+	[ITEM_SENSE] = "Sense.png",
+	[ITEM_SICHEL] = "Sichel.png",
+	[ITEM_STATUE] = "Statue.png",
+	[ITEM_STEAK] = "Steak.png",
+	[ITEM_STEIN] = "Stein.png",
+	[ITEM_TASCHENUHR] = "Taschenuhr.png",
+	[ITEM_TOMATE] = "Tomate.png",
+	[ITEM_TOPF] = "Topf.png",
+	[ITEM_TRAUBE] = "Traube.png",
+	[ITEM_TROMMEL] = "Trommel.png",
+	[ITEM_TROMPETE] = "Trompete.png",
+	[ITEM_TUCH] = "Tuch.png",
+	[ITEM_VIOLINE] = "Violine.png",
+	[ITEM_VOGELKAEFIG] = "Vogelkaefig.png",
+	[ITEM_WAABE] = "Waabe.png",
+	[ITEM_WEIN] = "Wein.png",
+	[ITEM_WEIZEN] = "Weizen.png",
+	[ITEM_WERKZEUG] = "Werkzeug.png",
+	[ITEM_WUERSTE] = "Wuerste.png",
+	[ITEM_WURST] = "Wurst.png",
+	[ITEM_ZWIEBEL] = "Zwiebel.png"
+};
+
+#define WORLD_ITEM_MAX_STACK				64U
 #define WORLD_CHEST_INVENTORY_WIDTH			5U
 #define WORLD_CHEST_INVENTORY_SIZE			100U
 
@@ -507,10 +712,7 @@ typedef struct World_Inventory {
 } World_Inventory;
 
 uint32_t World_Item_MaxStack(Item id){
-	switch(id){
-		case ITEM_WOOD: return WORLD_ITEM_WOOD_MAX_STACK;
-		default: return 1U;
-	}
+	return id > ITEM_NONE && id < ITEM_COUNT ? WORLD_ITEM_MAX_STACK : 1U;
 }
 char World_Inventory_Init(World_Inventory* inventory,uint32_t size,uint32_t width){
 	if(!inventory || width == 0U) return 0;
@@ -809,18 +1011,7 @@ World_Chunk World_Chunk_New(int32_t x,int32_t y){
 	memset(&ch.data,0,sizeof(ch.data));
 	return ch;
 }
-World_Chunk World_Chunk_Generate(int32_t x,int32_t y,Block background){
-	World_Chunk ch;
-	ch.x = x;
-	ch.y = y;
-	ch.tags = Vector_New(sizeof(World_Chunk_Tag));
-	ch.entities = PVector_New();
-
-	for(int i = 0;i<WORLD_CHUNK_WIDTH * WORLD_CHUNK_HEIGHT;i++)
-		ch.data[i] = background;
-
-	return ch;
-}
+World_Chunk World_Chunk_Generate(int32_t x,int32_t y,Block background);
 World_Chunk World_Chunk_Null(){
 	World_Chunk ch;
 	memset(&ch,0,sizeof(ch));
@@ -1065,7 +1256,7 @@ typedef struct World{
 	uint8_t inventory_has_chest;
 	int32_t inventory_chest_x;
 	int32_t inventory_chest_y;
-	uint32_t inventory_scroll_player;
+	uint32_t inventory_scroll_world_player;
 	uint32_t inventory_scroll_chest;
 	char* path;
 	void* (*Spawner)(Vec2,SpawnType,unsigned int*);
@@ -1086,7 +1277,7 @@ World World_Init(char* path){
 	w.inventory_has_chest = 0U;
 	w.inventory_chest_x = 0;
 	w.inventory_chest_y = 0;
-	w.inventory_scroll_player = 0U;
+	w.inventory_scroll_world_player = 0U;
 	w.inventory_scroll_chest = 0U;
 
 	w.path = CStr_Cpy(path);
@@ -1380,7 +1571,7 @@ void World_House_Initialize(World* w,uint64_t id){
 	World_Portal_Tag_Set(w,0,0,0U,source_x,source_y,1);
 	World_Portal_Tag_Set(w,0,1,0U,source_x,source_y,1);
 }
-char World_Portal_Travel(World* w,int32_t x,int32_t y,Vec2* player_position){
+char World_Portal_Travel(World* w,int32_t x,int32_t y,Vec2* world_player_position){
 	World_Dimension* current = (World_Dimension*)Vector_Get(&w->dims,w->dim_in);
 	if(!current || current->deleted) return 0;
 
@@ -1409,8 +1600,8 @@ char World_Portal_Travel(World* w,int32_t x,int32_t y,Vec2* player_position){
 		if(!World_ChangeDimension(w,id,0,0,0,&created)) return 0;
 		if(created)
 			World_House_Initialize(w,id);
-		if(player_position)
-			*player_position = (Vec2){ 0.0f,0.0f };
+		if(world_player_position)
+			*world_player_position = (Vec2){ 0.0f,0.0f };
 		return 1;
 	}
 	if(tag->type != WORLD_CHUNK_TAG_TYPE_PORTAL) return 0;
@@ -1422,8 +1613,8 @@ char World_Portal_Travel(World* w,int32_t x,int32_t y,Vec2* player_position){
 	if(!portal.is_overworld && (created || World_Get(w,0,0) != BLOCK_DOOR))
 		World_House_Initialize(w,portal.dimension);
 
-	if(player_position)
-		*player_position = (Vec2){ (float)portal.tx,(float)portal.ty };
+	if(world_player_position)
+		*world_player_position = (Vec2){ (float)portal.tx,(float)portal.ty };
 	return 1;
 }
 

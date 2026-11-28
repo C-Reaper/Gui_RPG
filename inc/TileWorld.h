@@ -87,15 +87,47 @@ static const uint8_t TileWorld_TileLookup[256] = {
     0x2A, 0x2A, 0x2B, 0x2C, 0x2A, 0x2A, 0x2D, 0x2E
 };
 
-typedef struct TileWorld {
-    World world;
-    Player player;
-    TransformedView tv;
-    AudioPlayer ap;
-    Block selected;
-    Sprite item_frame;
-    Sprite wood_icon;
-} TileWorld;
+void World_Chunk_GenerateObjects(World_Chunk* ch){
+	static const Entity_ID baum_ids[] = {
+		ENTITY_ID_BAUM,
+		ENTITY_ID_BAUM_DARK,
+		ENTITY_ID_BAUM_LIGHT,
+		ENTITY_ID_BAUM_OBST,
+		ENTITY_ID_PALME,
+		ENTITY_ID_TANNE
+	};
+	const uint32_t count = Random_u32_MinMax(0U,8U);
+
+	for(uint32_t i = 0;i<count;i++){
+		const float px = Random_f64_MinMax(0.0f,WORLD_CHUNK_WIDTH);
+		const float py = Random_f64_MinMax(0.0f,WORLD_CHUNK_HEIGHT);
+		const uint32_t tree_index = Random_u32_MinMax(0U,(uint32_t)(sizeof(baum_ids) / sizeof(baum_ids[0])));
+		World_Entity* baum = (World_Entity*)World_Entity_New((Vec2){ ch->x * WORLD_CHUNK_WIDTH + px,ch->y * WORLD_CHUNK_HEIGHT + py },baum_ids[tree_index]);
+		if(baum) PVector_PPush(&ch->entities,baum);
+	}
+
+	const uint32_t stein_count = Random_u32_MinMax(0U,3U);
+	
+	for(uint32_t i = 0;i<stein_count;i++){
+		const float px = Random_f64_MinMax(0.0f,WORLD_CHUNK_WIDTH);
+		const float py = Random_f64_MinMax(0.0f,WORLD_CHUNK_HEIGHT);
+		World_Stein* stein = World_Stein_New((Vec2){ ch->x * WORLD_CHUNK_WIDTH + px,ch->y * WORLD_CHUNK_HEIGHT + py });
+		if(stein) PVector_PPush(&ch->entities,stein);
+	}
+}
+World_Chunk World_Chunk_Generate(int32_t x,int32_t y,Block background){
+	World_Chunk ch;
+	ch.x = x;
+	ch.y = y;
+	ch.tags = Vector_New(sizeof(World_Chunk_Tag));
+	ch.entities = PVector_New();
+
+	for(int i = 0;i<WORLD_CHUNK_WIDTH * WORLD_CHUNK_HEIGHT;i++)
+		ch.data[i] = background;
+
+	World_Chunk_GenerateObjects(&ch);
+	return ch;
+}
 
 SubSprite TileWorld_Atlas_Cell_Get(Animation* a,unsigned int tile_x,unsigned int tile_y){
 	if(!a->atlas_img.img || a->atlas_cx == 0U || a->atlas_cy == 0U)
@@ -266,23 +298,131 @@ SubSprite TileWorld_Chest_Get(Animation* a,World* w,int32_t x,int32_t y){
 		return SubSprite_Null();
 	return SubSprite_New(&a->atlas_img,0U,0U,dx,dy);
 }
+EntityAtlas TileWorld_Item_EntityAtlas_Make(char* path_items,Item item){
+	return EntityAtlas_Make(
+		path_items,
+		WORLD_ITEM_FILES[item],
+		1,1,
+		WORLD_ITEM_DIM_X,WORLD_ITEM_DIM_Y,
+		NULL,NULL,
+		(SubSprite(*)(void*,EntityAtlas*))World_Item_Entity_GetRender,
+		NULL,NULL,NULL,NULL,NULL,
+		(void*(*)(DataStream*))World_Item_Entity_Load,
+		(void(*)(void*,DataStream*))World_Item_Entity_Save
+	);
+}
 
 TileWorld TileWorld_New(char* path_world,char* path_blocks,char* path_figures,char* path_objects,char* path_items){
     TileWorld tw;
 	memset(&tw,0,sizeof(tw));
-	tw.player = Player_By((Vec2){ 0.0f,0.0f },ENTITY_ID_BLACKHAIR);
+	tw.player = World_Player_By((Vec2){ 0.0f,0.0f },ENTITY_ID_BLACKHAIR);
 	CStr item_frame_path = CStr_Concat(path_items,"Itemframe.png");
-	CStr wood_icon_path = CStr_Concat(path_items,"Wood.png");
 	tw.item_frame = Sprite_Load(item_frame_path);
-	tw.wood_icon = Sprite_Load(wood_icon_path);
 	CStr_Free(&item_frame_path);
-	CStr_Free(&wood_icon_path);
 
 	tw.tv = TransformedView_New((Vec2){ GetWidth(),GetHeight() });
 	TransformedView_Zoom(&tw.tv,(Vec2){ 0.05f,0.05f });
 	//TransformedView_Offset(&tv,(Vec2){ -0.5f,0.0f });
 
 	tw.ap = AudioPlayer_New();
+	EntityAtlas entity_atlases[ENTITY_ID_COUNT] = { 0 };
+	entity_atlases[ENTITY_ID_BLACKHAIR - 1U] = EntityAtlas_Make(
+		path_figures,
+		"Fox6.png",
+		4,6,
+		2.0f,1.6f,
+		(void(*)(void*,void*,const float))World_Player_Update,
+		(void(*)(void*,const float,const float))World_Player_Move,
+		(SubSprite(*)(void*,EntityAtlas*))World_Player_GetRender,
+		(void(*)(void*))World_Player_Free,
+		(void(*)(void*,World*))World_Player_WorldCollision,
+		(char(*)(void*,World*,int32_t,int32_t,Side))World_Player_IsSolid,
+		(void(*)(void*,World*,int32_t,int32_t,Side))World_Player_Collision,
+		(void(*)(void*,World*,void*,int32_t,int32_t,Side))World_Player_EntityCollision,
+		(void*(*)(DataStream*))World_Player_Load,
+		(void(*)(void*,DataStream*))World_Player_Save
+	);
+	entity_atlases[ENTITY_ID_BAUM - 1U] = EntityAtlas_Make(
+		path_objects,
+		"Baum.png",
+		1,1,
+		3.5f,4.0f,
+		NULL,NULL,
+		(SubSprite(*)(void*,EntityAtlas*))World_Baum_GetRender,
+		NULL,NULL,NULL,NULL,NULL,
+		(void*(*)(DataStream*))World_Baum_Load,
+		(void(*)(void*,DataStream*))World_Baum_Save
+	);
+	entity_atlases[ENTITY_ID_BAUM_DARK - 1U] = EntityAtlas_Make(
+		path_objects,
+		"Baum_dark.png",
+		1,1,
+		3.5f,4.0f,
+		NULL,NULL,
+		(SubSprite(*)(void*,EntityAtlas*))World_Baum_Dark_GetRender,
+		NULL,NULL,NULL,NULL,NULL,
+		(void*(*)(DataStream*))World_Baum_Dark_Load,
+		(void(*)(void*,DataStream*))World_Baum_Dark_Save
+	);
+	entity_atlases[ENTITY_ID_BAUM_LIGHT - 1U] = EntityAtlas_Make(
+		path_objects,
+		"Baum_light.png",
+		1,1,
+		3.5f,4.0f,
+		NULL,NULL,
+		(SubSprite(*)(void*,EntityAtlas*))World_Baum_Light_GetRender,
+		NULL,NULL,NULL,NULL,NULL,
+		(void*(*)(DataStream*))World_Baum_Light_Load,
+		(void(*)(void*,DataStream*))World_Baum_Light_Save
+	);
+	entity_atlases[ENTITY_ID_BAUM_OBST - 1U] = EntityAtlas_Make(
+		path_objects,
+		"Baum_obst.png",
+		1,1,
+		3.5f,4.0f,
+		NULL,NULL,
+		(SubSprite(*)(void*,EntityAtlas*))World_Baum_Obst_GetRender,
+		NULL,NULL,NULL,NULL,NULL,
+		(void*(*)(DataStream*))World_Baum_Obst_Load,
+		(void(*)(void*,DataStream*))World_Baum_Obst_Save
+	);
+	entity_atlases[ENTITY_ID_PALME - 1U] = EntityAtlas_Make(
+		path_objects,
+		"Palme.png",
+		1,1,
+		3.5f,4.0f,
+		NULL,NULL,
+		(SubSprite(*)(void*,EntityAtlas*))World_Palme_GetRender,
+		NULL,NULL,NULL,NULL,NULL,
+		(void*(*)(DataStream*))World_Palme_Load,
+		(void(*)(void*,DataStream*))World_Palme_Save
+	);
+	entity_atlases[ENTITY_ID_STEIN - 1U] = EntityAtlas_Make(
+		path_objects,
+		"Stein.png",
+		1,1,
+		2.5f,2.4f,
+		NULL,NULL,
+		(SubSprite(*)(void*,EntityAtlas*))World_Stein_GetRender,
+		NULL,NULL,NULL,NULL,NULL,
+		(void*(*)(DataStream*))World_Stein_Load,
+		(void(*)(void*,DataStream*))World_Stein_Save
+	);
+	entity_atlases[ENTITY_ID_TANNE - 1U] = EntityAtlas_Make(
+		path_objects,
+		"Tanne.png",
+		1,1,
+		3.5f,4.0f,
+		NULL,NULL,
+		(SubSprite(*)(void*,EntityAtlas*))World_Tanne_GetRender,
+		NULL,NULL,NULL,NULL,NULL,
+		(void*(*)(DataStream*))World_Tanne_Load,
+		(void(*)(void*,DataStream*))World_Tanne_Save
+	);
+	for(Item item = ITEM_HOLZ;item < ITEM_COUNT;item++){
+		const Entity_ID entity_id = World_Item_Entity_ID(item);
+		entity_atlases[entity_id - 1U] = TileWorld_Item_EntityAtlas_Make(path_items,item);
+	}
 	tw.world = World_Make(path_world,
         (Animation[]){
 		    Animation_Make_SpritePath(path_blocks,"Dirt.png"),
@@ -300,62 +440,12 @@ TileWorld TileWorld_New(char* path_world,char* path_blocks,char* path_figures,ch
 		    Animation_Make_SpritePath(path_blocks,"Plank.png"),
 		    Animation_Null()
 	    },
-        (EntityAtlas[]){
-		    EntityAtlas_Make(
-				path_figures,
-				"Fox6.png",
-				4,6,
-				2.0f,1.6f,
-				(void(*)(void*,void*,const float))Player_Update,
-				(void(*)(void*,const float,const float))Player_Move,
-				(SubSprite(*)(void*,EntityAtlas*))Player_GetRender,
-				(void(*)(void*))Player_Free,
-				(void(*)(void*,World*))Player_WorldCollision,
-				(char(*)(void*,World*,int32_t,int32_t,Side))Player_IsSolid,
-				(void(*)(void*,World*,int32_t,int32_t,Side))Player_Collision,
-				(void(*)(void*,World*,void*,int32_t,int32_t,Side))Player_EntityCollision,
-				(void*(*)(DataStream*))Player_Load,
-				(void(*)(void*,DataStream*))Player_Save
-			),
-		    EntityAtlas_Make(
-				path_objects,
-				"Tree.png",
-				1,1,
-				3.5f,4.0f,
-				NULL,
-				NULL,
-				(SubSprite(*)(void*,EntityAtlas*))Tree_GetRender,
-				NULL,
-				NULL,
-				NULL,
-				NULL,
-				NULL,
-				(void*(*)(DataStream*))Tree_Load,
-				(void(*)(void*,DataStream*))Tree_Save
-			),
-		    EntityAtlas_Make(
-				path_items,
-				"Wood.png",
-				1,1,
-				WOOD_ITEM_DIM_X,WOOD_ITEM_DIM_Y,
-				NULL,
-				NULL,
-				(SubSprite(*)(void*,EntityAtlas*))World_Item_Entity_GetRender,
-				NULL,
-				NULL,
-				NULL,
-				NULL,
-				NULL,
-				(void*(*)(DataStream*))World_Item_Entity_Load,
-				(void(*)(void*,DataStream*))World_Item_Entity_Save
-			),
-		    EntityAtlas_Null()
-	    }
+		entity_atlases
     );
 
 	tw.selected = BLOCK_NONE;
     tw.player.e.r.p = tw.world.spawn;
-	Player_LoadInventoryFile(&tw.player,&tw.world);
+	World_Player_LoadInventoryFile(&tw.player,&tw.world);
     return tw;
 }
 void TileWorld_AudioPlayerStart(TileWorld* tw){
@@ -451,15 +541,15 @@ void TileWorld_Inventory_Toggle(TileWorld* tw){
 	}
 
 	tw->world.inventory = 1U;
-	tw->world.inventory_scroll_player = 0U;
+	tw->world.inventory_scroll_world_player = 0U;
 	tw->world.inventory_scroll_chest = 0U;
 	tw->world.inventory_has_chest = 0U;
 
-	const int32_t player_x = (int32_t)floorf(tw->player.e.r.p.x);
-	const int32_t player_y = (int32_t)floorf(tw->player.e.r.p.y);
+	const int32_t world_player_x = (int32_t)floorf(tw->player.e.r.p.x);
+	const int32_t world_player_y = (int32_t)floorf(tw->player.e.r.p.y);
 	float nearest_distance = 2.25f;
-	for(int32_t y = player_y - 2;y<=player_y + 2;y++){
-		for(int32_t x = player_x - 2;x<=player_x + 2;x++){
+	for(int32_t y = world_player_y - 2;y<=world_player_y + 2;y++){
+		for(int32_t x = world_player_x - 2;x<=world_player_x + 2;x++){
 			if(!World_Chest_Inventory_Get(&tw->world,x,y)) continue;
 			const float dx = (float)x + 0.5f - tw->player.e.r.p.x;
 			const float dy = (float)y + 0.5f - tw->player.e.r.p.y;
@@ -475,7 +565,7 @@ void TileWorld_Inventory_Toggle(TileWorld* tw){
 }
 uint32_t TileWorld_Inventory_LayoutColumns(TileWorld* tw){
 	uint32_t columns = tw->player.inventory.width;
-	if(columns < PLAYER_INVENTORY_WIDTH) columns = PLAYER_INVENTORY_WIDTH;
+	if(columns < WORLD_PLAYER_INVENTORY_WIDTH) columns = WORLD_PLAYER_INVENTORY_WIDTH;
 	if(tw->world.inventory_has_chest){
 		World_Inventory* chest = TileWorld_Inventory_Chest_Get(tw);
 		if(chest && columns < chest->width) columns = chest->width;
@@ -484,7 +574,7 @@ uint32_t TileWorld_Inventory_LayoutColumns(TileWorld* tw){
 }
 float TileWorld_Inventory_SlotSize(unsigned int width,unsigned int height,uint32_t columns){
 	if(width == 0U || height == 0U) return 0.0f;
-	if(columns == 0U) columns = PLAYER_INVENTORY_WIDTH;
+	if(columns == 0U) columns = WORLD_PLAYER_INVENTORY_WIDTH;
 
 	const float desired_size = (float)(width < height ? width : height) * TILEWORLD_INVENTORY_SLOT_SCREEN_RATIO;
 	const float margin = fminf((float)width * 0.02f,16.0f);
@@ -522,7 +612,7 @@ void TileWorld_Inventory_Scroll(TileWorld* tw,int direction,unsigned int mouse_y
 	if(!tw->world.inventory || direction == 0) return;
 	if(!tw->world.inventory_has_chest && mouse_y >= height / 2U) return;
 	World_Inventory* inventory = &tw->player.inventory;
-	uint32_t* scroll = &tw->world.inventory_scroll_player;
+	uint32_t* scroll = &tw->world.inventory_scroll_world_player;
 	if(tw->world.inventory_has_chest && mouse_y >= height / 2U){
 		inventory = TileWorld_Inventory_Chest_Get(tw);
 		scroll = &tw->world.inventory_scroll_chest;
@@ -603,7 +693,7 @@ void TileWorld_Inventory_ClickButton(TileWorld* tw,unsigned int mx,unsigned int 
 	if(!tw->world.inventory) return;
 	const uint32_t columns = TileWorld_Inventory_LayoutColumns(tw);
 	if(my < height / 2U){
-		TileWorld_Inventory_ClickPanel(tw,&tw->player.inventory,&tw->world.inventory_scroll_player,0U,mx,my,width,height,columns,right_click);
+		TileWorld_Inventory_ClickPanel(tw,&tw->player.inventory,&tw->world.inventory_scroll_world_player,0U,mx,my,width,height,columns,right_click);
 	}else if(tw->world.inventory_has_chest){
 		World_Inventory* chest = TileWorld_Inventory_Chest_Get(tw);
 		TileWorld_Inventory_ClickPanel(tw,chest,&tw->world.inventory_scroll_chest,1U,mx,my,width,height,columns,right_click);
@@ -617,8 +707,12 @@ void TileWorld_Inventory_ClickRight(TileWorld* tw,unsigned int mx,unsigned int m
 }
 void TileWorld_Inventory_RenderStack(TileWorld* tw,Pixel* out,unsigned int width,unsigned int height,World_Item_Stack* stack,float x,float y,float slot_size){
 	if(!stack || stack->id == ITEM_NONE) return;
-	if(stack->id == ITEM_WOOD && tw->wood_icon.img)
-		TileWorld_RenderEntityPreview(out,width,height,SubSprite_New(&tw->wood_icon,0U,0U,tw->wood_icon.w,tw->wood_icon.h),x,y,slot_size,slot_size);
+	if(stack->id < ITEM_COUNT){
+		const World_Entity item_entity = { .id = World_Item_Entity_ID(stack->id) };
+		EntityAtlas* ea = World_EntityAtlas_Get(&tw->world,&item_entity);
+		if(ea && ea->atlas.img)
+			TileWorld_RenderEntityPreview(out,width,height,SubSprite_New(&ea->atlas,0U,0U,ea->atlas.w,ea->atlas.h),x,y,slot_size,slot_size);
+	}
 	if(World_Item_MaxStack(stack->id) > 1U && stack->count > 1U)
 		TileWorld_Inventory_RenderCount(out,width,height,stack->count,x,y,slot_size);
 }
@@ -652,7 +746,7 @@ void TileWorld_Inventory_Render(TileWorld* tw,Pixel* out,unsigned int width,unsi
 	if(!tw->world.inventory) return;
 	Rect_RenderXXAlpha(out,(int)width,(int)height,0.0f,0.0f,(float)width,(float)height,Pixel_RGBA(0U,0U,0U,128U));
 	const uint32_t columns = TileWorld_Inventory_LayoutColumns(tw);
-	TileWorld_Inventory_RenderPanel(tw,out,width,height,&tw->player.inventory,&tw->world.inventory_scroll_player,0U,"Inventory (E to close)",columns);
+	TileWorld_Inventory_RenderPanel(tw,out,width,height,&tw->player.inventory,&tw->world.inventory_scroll_world_player,0U,"Inventory (E to close)",columns);
 	if(tw->world.inventory_has_chest){
 		World_Inventory* chest = TileWorld_Inventory_Chest_Get(tw);
 		TileWorld_Inventory_RenderPanel(tw,out,width,height,chest,&tw->world.inventory_scroll_chest,1U,"Chest",columns);
@@ -702,11 +796,10 @@ void TileWorld_RenderDbg(TileWorld* tw,Pixel* out,unsigned int width,unsigned in
 	}
 }
 void TileWorld_Free(TileWorld* tw){
-	Player_SaveInventoryFile(&tw->player,&tw->world);
+	World_Player_SaveInventoryFile(&tw->player,&tw->world);
     World_Free(&tw->world);
-    Player_Free(&tw->player);
+    World_Player_Free(&tw->player);
 	Sprite_Free(&tw->item_frame);
-	Sprite_Free(&tw->wood_icon);
     AudioPlayer_Free(&tw->ap);
 }
 

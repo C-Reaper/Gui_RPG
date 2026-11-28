@@ -13,7 +13,7 @@
 #include "F:/home/codeleaded/System/Static/Library/Files.h"
 #include "F:/home/codeleaded/System/Static/Library/TransformedView.h"
 #include "F:/home/codeleaded/System/Static/Library/Geometry.h"
-#include "F:/home/codeleaded/System/Static/Library/AudioPlayer.h"
+#include "F:/home/codeleaded/System/Static/Library/AudioWorld_Player.h"
 #endif
 
 #include "../inc/World.h"
@@ -31,9 +31,9 @@ void Setup(AlxWindow* w){
 }
 void Update(AlxWindow* w){
 	TransformedView_Output(&world.tv,(Vec2){ GetWidth(),GetHeight() });
+	TransformedView_Focus(&world.tv,&world.player.e.r.p,world.player.e.r.d);
 	if(!world.world.inventory)
 		TransformedView_HandlePanZoom(&world.tv,window.Strokes,GetMouse());
-	TransformedView_Focus(&world.tv,&world.player.e.r.p,world.player.e.r.d);
 
 	if(Stroke(ALX_KEY_E).PRESSED &&
 	   (world.world.inventory || world.world.portal_exit_timer <= 0.0f))
@@ -59,6 +59,7 @@ void Update(AlxWindow* w){
 	if(world.world.inventory){
 		const int scroll_direction = Stroke(ALX_MOUSE_S_UP).PRESSED ? -1 : (Stroke(ALX_MOUSE_S_DOWN).PRESSED ? 1 : 0);
 		TileWorld_Inventory_Scroll(&world,scroll_direction,(unsigned int)w->MouseY,(unsigned int)GetWidth(),(unsigned int)GetHeight());
+		
 		if(Stroke(ALX_MOUSE_L).PRESSED)
 			TileWorld_Inventory_Click(&world,(unsigned int)w->MouseX,(unsigned int)w->MouseY,(unsigned int)GetWidth(),(unsigned int)GetHeight());
 		else if(Stroke(ALX_MOUSE_R).PRESSED)
@@ -71,7 +72,18 @@ void Update(AlxWindow* w){
 	}else if(world.world.mode != ANIMATIONBG_DG){
 		const float dir_x = Stroke(ALX_KEY_A).DOWN ? -1.0f : (Stroke(ALX_KEY_D).DOWN ? 1.0f : 0.0f);
 		const float dir_y = Stroke(ALX_KEY_W).DOWN ? -1.0f : (Stroke(ALX_KEY_S).DOWN ? 1.0f : 0.0f);
-		Player_Move(&world.player,dir_x,dir_y);
+		World_Player_Move(&world.player,dir_x,dir_y);
+
+		if(Stroke(ALX_MOUSE_L).PRESSED)
+			world.player.start = Time_Nano();
+		if(Stroke(ALX_MOUSE_L).DOWN){
+			world.player.attacking = 1U;
+			world.player.e.v.x = 0.0f;
+			world.player.e.v.y = 0.0f;
+			world.player.e.a.x = 0.0f;
+			world.player.e.a.y = 0.0f;
+		}else
+			world.player.attacking = 0U;
 	}else{
 		if(Stroke(ALX_MOUSE_M).PRESSED){
 			const Vec2 p = TransformedView_ScreenWorldPos(&world.tv,(Vec2){ w->MouseX,w->MouseY });
@@ -93,18 +105,18 @@ void Update(AlxWindow* w){
 		}
 		
 		if(Stroke(ALX_KEY_A).DOWN){
-			world.player.e.v.x = -PLAYER_VEL_MAX;
+			world.player.e.v.x = -WORLD_PLAYER_VEL_MAX;
 		}else if(Stroke(ALX_KEY_D).DOWN){
-			world.player.e.v.x = PLAYER_VEL_MAX;
+			world.player.e.v.x = WORLD_PLAYER_VEL_MAX;
 		}else{
 			world.player.e.v.x = 0.0f;
 			world.player.e.a.x = 0.0f;
 		}
 
 		if(Stroke(ALX_KEY_W).DOWN){
-			world.player.e.v.y = -PLAYER_VEL_MAX;
+			world.player.e.v.y = -WORLD_PLAYER_VEL_MAX;
 		}else if(Stroke(ALX_KEY_S).DOWN){
-			world.player.e.v.y = PLAYER_VEL_MAX;
+			world.player.e.v.y = WORLD_PLAYER_VEL_MAX;
 		}else{
 			world.player.e.v.y = 0.0f;
 			world.player.e.a.y = 0.0f;
@@ -118,7 +130,7 @@ void Update(AlxWindow* w){
 	World_Update(&world.world,&world.tv,w->ElapsedTime);
 	World_Collisions(&world.world,&world.tv);
 
-	Player_Update(&world.player,&world.world,w->ElapsedTime);
+	World_Player_Update(&world.player,&world.world,w->ElapsedTime);
 	World_CollisionsEntity(&world.world,&world.tv,&world.player.e);
 
 	Clear(LIGHT_BLUE);
